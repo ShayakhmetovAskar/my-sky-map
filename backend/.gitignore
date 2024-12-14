@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pkl
+
+# Virtual environments
+*.env
+*.env.*
+*.venv/
+env/
+venv/
+venv.bak/
+
+# Logs and temporary files
+*.log
+*.sqlite3
+pip-log.txt
+
+# pytest / testing
+.coverage
+.tox/
+.cache/
+.pytest_cache/
+
+# Build
+build/
+dist/
+*.egg-info/
+.eggs/
+site/
+docs/_build/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Editor-specific
+.idea/
+.vscode/
+*.swp
+*.swo
+*.orig
+*.rej
+*.sublime-workspace
+*.sublime-project
+
+
+data

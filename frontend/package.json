@@ -1,0 +1,25 @@
+{
+  "name": "my-sky-map",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@hscmap/healpix": "^1.4.12",
+    "papaparse": "^5.4.1",
+    "quick-lru": "^7.0.0",
+    "three": "^0.171.0",
+    "vite-plugin-commonjs": "^0.10.4",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^28.0.1",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^6.0.1",
+    "vite-plugin-vue-devtools": "^7.6.5"
+  }
+}

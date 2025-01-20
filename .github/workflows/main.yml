@@ -50,28 +50,29 @@ jobs:
       #     cd backend
       #     pytest
 
-
-      - name: Deploy to server
-        if: ${{ success() }}
+      - name: Deploy frontend
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "./frontend/dist/*"     # Локальная папка dist
-          target: "${{ secrets.REMOTE_PATH }}/frontend/dist"  # Копируем в dist на сервере
+          source: "frontend/dist/*"
+          target: "${{ secrets.REMOTE_PATH }}/frontend/dist"
           overwrite: true
+          recursive: true
 
+      
       - name: Deploy backend
-        if: ${{ success() }}
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "./backend/*"
+          source: "backend/*"
           target: "${{ secrets.REMOTE_PATH }}/backend"
           overwrite: true
+          recursive: true
+
 
       - name: Restart service
         if: ${{ success() }}

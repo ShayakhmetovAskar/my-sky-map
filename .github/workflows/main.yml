@@ -56,10 +56,10 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "frontend/dist/*"
-          target: "${{ secrets.REMOTE_PATH }}/frontend/dist"
+          source: "frontend/dist"
+          target: "${{ secrets.REMOTE_PATH }}/frontend"
           overwrite: true
-          recursive: true
+    
 
       
       - name: Deploy backend
@@ -68,10 +68,10 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "backend/*"
-          target: "${{ secrets.REMOTE_PATH }}/backend"
+          source: "backend"
+          target: "${{ secrets.REMOTE_PATH }}"
           overwrite: true
-          recursive: true
+        
 
 
       - name: Restart service

@@ -43,10 +43,15 @@ async def get_stars_in_fov_api(
     stars = await get_stars_nside_pix(db, nside, pix)
     return [
         {
-            "id": star.id,
+            "source_id": star.source_id,
             "ra": star.ra,
             "de": star.dec,
             "vmag": star.phot_g_mean_mag,
+            "b_v": (
+                (star.phot_bp_mean_mag - star.phot_g_mean_mag)
+                if star.phot_bp_mean_mag is not None and star.phot_g_mean_mag is not None
+                else 0.0  # Neutral white color
+            ),
             "nside": star.nside,
             "pix": star.pix
         }

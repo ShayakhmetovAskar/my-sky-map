@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@hscmap/healpix": "^1.4.12",
+    "astronomy-engine": "^2.1.19",
     "papaparse": "^5.4.1",
     "quick-lru": "^7.0.0",
     "three": "^0.171.0",

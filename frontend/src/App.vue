@@ -1,17 +1,18 @@
 <template>
   <div id="app">
-    <ThreeScene />
+    <Scene />
   </div>
 </template>
 
 <script>
 
-import ThreeScene from "@/components/ThreeScene.vue";
+//import ThreeScene from "@/components/ThreeScene.vue";
+import Scene from "./views/Scene.vue";
 
 export default {
   name: 'App',
   components: {
-    ThreeScene,
+    Scene,
   },
 };
 </script>

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Float
+from sqlalchemy import Column, Integer, Float, BigInteger
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -8,6 +8,7 @@ class Star(Base):
     __tablename__ = "stars"
 
     id = Column(Integer, primary_key=True, index=True)
+    source_id = Column(Integer, nullable=False)
     ra = Column(Float, nullable=False)
     dec = Column(Float, nullable=False)
     phot_g_mean_mag = Column(Float, nullable=True)

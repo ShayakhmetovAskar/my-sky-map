@@ -1,6 +1,5 @@
 annotated-types==0.7.0
 anyio==4.7.0
-astropy==7.0.0
 astropy-iers-data==0.2024.12.9.0.36.21
 asyncpg==0.30.0
 click==8.1.7

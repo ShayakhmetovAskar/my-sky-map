@@ -53,7 +53,7 @@ jobs:
 
       - name: Deploy to server
         if: ${{ success() }}
-        uses: appleboy/scp-action@v0.1.6
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
@@ -64,7 +64,7 @@ jobs:
 
       - name: Deploy backend
         if: ${{ success() }}
-        uses: appleboy/scp-action@v0.1.6
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
@@ -75,7 +75,7 @@ jobs:
 
       - name: Restart service
         if: ${{ success() }}
-        uses: appleboy/ssh-action@v0.1.11
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}

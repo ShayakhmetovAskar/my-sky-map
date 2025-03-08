@@ -168,7 +168,7 @@ export default CelestialBodyNew;
 
 class MoonNew extends CelestialBodyNew {
     constructor(scene, camera) {
-        super(scene, camera, '8k_moon.jpg', 'shaders/vertexNew.glsl', 'shaders/fragmentNew.glsl', CelestialRadii.Moon, 0.8);
+        super(scene, camera, '2k_moon-min.jpg', 'shaders/vertexNew.glsl', 'shaders/fragmentNew.glsl', CelestialRadii.Moon, 0.8);
         this.name = 'Moon';
         this.deltaRotation = 1.5 * Math.PI;
     }
@@ -177,7 +177,7 @@ class MoonNew extends CelestialBodyNew {
 
 class Mars extends CelestialBodyNew {
     constructor(scene, camera) {
-        super(scene, camera, '8k_mars.jpg', 'shaders/vertex.glsl', 'shaders/fragment.glsl', CelestialRadii.Mars, 0, [0.8, 0.4, 0.3]);
+        super(scene, camera, '2k_mars-min.jpg', 'shaders/vertex.glsl', 'shaders/fragment.glsl', CelestialRadii.Mars, 0, [0.8, 0.4, 0.3]);
         this.name = 'Mars';
         this.deltaRotation = 1.77 * Math.PI;
     }
@@ -185,7 +185,7 @@ class Mars extends CelestialBodyNew {
 
 class Jupiter extends CelestialBodyNew {
     constructor(scene, camera) {
-        super(scene, camera, '8k_jupiter.jpg', 'shaders/vertex.glsl', 'shaders/fragment.glsl', CelestialRadii.Jupiter, 0, [0.9, 0.88, 0.68]);
+        super(scene, camera, '8k_jupiter-min.jpg', 'shaders/vertex.glsl', 'shaders/fragment.glsl', CelestialRadii.Jupiter, 0, [0.9, 0.88, 0.68]);
         this.name = 'Jupiter';
         this.deltaRotation = 0.5 * Math.PI;
     }
@@ -193,42 +193,42 @@ class Jupiter extends CelestialBodyNew {
 
 class Uranus extends CelestialBodyNew {
     constructor(scene, camera) {
-        super(scene, camera, '2k_uranus.jpg', 'shaders/vertex.glsl', 'shaders/fragment.glsl', CelestialRadii.Uranus, 0, [0.6, 0.8, 0.9]);
+        super(scene, camera, '2k_uranus-min.jpg', 'shaders/vertex.glsl', 'shaders/fragment.glsl', CelestialRadii.Uranus, 0, [0.6, 0.8, 0.9]);
         this.name = 'Uranus';
     }
 }
 
 class Neptune extends CelestialBodyNew {
     constructor(scene, camera) {
-        super(scene, camera, '2k_neptune.jpg', 'shaders/vertex.glsl', 'shaders/fragment.glsl', CelestialRadii.Neptune, 0, [0.3, 0.5, 0.8]);
+        super(scene, camera, '2k_neptune-min.jpg', 'shaders/vertex.glsl', 'shaders/fragment.glsl', CelestialRadii.Neptune, 0, [0.3, 0.5, 0.8]);
         this.name = 'Neptune';
     }
 }
 
 class Saturn extends CelestialBodyNew {
     constructor(scene, camera) {
-        super(scene, camera, '8k_saturn.jpg', 'shaders/vertex.glsl', 'shaders/fragment.glsl', CelestialRadii.Saturn, 0, [0.9, 0.8, 0.6]);
+        super(scene, camera, '2k_saturn-min.jpg', 'shaders/vertex.glsl', 'shaders/fragment.glsl', CelestialRadii.Saturn, 0, [0.9, 0.8, 0.6]);
         this.name = 'Saturn';
     }
 }
 
 class Venus extends CelestialBodyNew {
     constructor(scene, camera) {
-        super(scene, camera, '4k_venus_atmosphere.jpg', 'shaders/vertex.glsl', 'shaders/fragment.glsl', CelestialRadii.Venus, 0);
+        super(scene, camera, '2k_venus_atmosphere-min.jpg', 'shaders/vertex.glsl', 'shaders/fragment.glsl', CelestialRadii.Venus, 0);
         this.name = 'Venus';
     }
 }
 
 class Mercury extends CelestialBodyNew {
     constructor(scene, camera) {
-        super(scene, camera, '8k_mercury.jpg', 'shaders/vertex.glsl', 'shaders/fragment.glsl', CelestialRadii.Mercury, 0);
+        super(scene, camera, '2k_mercury-min.jpg', 'shaders/vertex.glsl', 'shaders/fragment.glsl', CelestialRadii.Mercury, 0);
         this.name = 'Mercury';
     }
 }
 
 class Sun extends CelestialBodyNew {
     constructor(scene, camera) {
-        super(scene, camera, '2k_sun.jpg', 'shaders/vertex.glsl', 'shaders/fragment.glsl', CelestialRadii.Sun, 0.8, [1.0, 1.0, 0.8]);
+        super(scene, camera, '2k_sun-min.jpg', 'shaders/vertex.glsl', 'shaders/fragment.glsl', CelestialRadii.Sun, 0.8, [1.0, 1.0, 0.8]);
         this.name = 'Sun';
     }
 }

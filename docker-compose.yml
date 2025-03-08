@@ -1,0 +1,30 @@
+services:
+  backend:
+    build: ./backend
+    container_name: fastapi_backend
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend:/app
+      - ${data_root}:${data_root}
+    
+    command: uvicorn src.server:app --host 0.0.0.0 --port 8000
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vite_frontend
+    
+    depends_on:
+      - backend
+
+  nginx_proxy:
+    image: nginx:alpine
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+      - frontend

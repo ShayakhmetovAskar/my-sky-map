@@ -130,6 +130,7 @@ export class CelestialBodyNew {
         let sizePx = Math.max(this.minSize * this.camera.fov / 120, this.sizePx);
         this.mesh.scale.set(sizePx / 2, sizePx / 2, 1);
         this.mesh.scale.set(sizePx / 2, sizePx / 2, 1);
+        this.glow.material.uniforms.fov.value = this.camera.fov;
     }
 
     setNorth(x, y, z) {

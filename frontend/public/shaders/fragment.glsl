@@ -17,8 +17,8 @@ uniform float     uSunDistance; // Расстояние до источника 
 uniform float     uDistance; // Расстояние до планеты в 10^8 км
 uniform vec3      uTest; 
 
-const vec3 UP = vec3(0.0, 1.0, 0.0);
 
+const vec3 UP = vec3(0.0, 1.0, 0.0);
 
 
 // Функция для вычисления угла между наблюдателем и главным меридианом
@@ -166,6 +166,7 @@ void main(void)
     float u = lambda / TWO_PI + 0.5;
     float v = phi    / 3.14159265359 + 0.5;
 
+
     vec4 color = texture(uTexture, vec2(u, v));
 
     if (uSunDirection == uDirection) {
@@ -189,11 +190,11 @@ void main(void)
     planetToSun = rotToRealNorth * planetToSun;
     planetToSun = normalize(planetToSun);
 
-    float ndotl = max(dot(finalDir, planetToSun), 0.0);
-    float diff = min(1.0, max(2.0 * ndotl + 0.2, 0.0));
+    float ndotl = max(dot(finalDir, planetToSun) + 0.00, 0.0);
+    float diff = min(2.0, max(1.1 * ndotl + 0.0, 0.0));
 
     // Итоговый цвет — умножим текстурный цвет на освещённость
-    vec4 litColor = color * diff;
+    vec4 litColor = vec4(color.rgb * diff, color.a);
 
     gl_FragColor = litColor;
 }

@@ -1,12 +1,12 @@
 <template>
   <div id="app">
     <Scene />
+    
   </div>
 </template>
 
 <script>
 
-//import ThreeScene from "@/components/ThreeScene.vue";
 import Scene from "./views/Scene.vue";
 
 export default {
@@ -17,7 +17,7 @@ export default {
 };
 </script>
 
-<style>
+<style> 
 #app {
   margin: 0;
   padding: 0;

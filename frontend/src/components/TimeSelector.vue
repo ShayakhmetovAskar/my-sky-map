@@ -1,24 +1,38 @@
 <template>
-  <div class="time-slider">
-    <div class="date-time">
+  <div class="time-slider disable-dbl-tap-zoom" :class="{ minimized }">
+    <div v-if="!minimized" class="date-time">
       <div class="date">
-        <button @click="changeDate(1)">▲</button>
+        <button @mousedown="startTimeChange(24 * 60 * 60)" @mouseup="stopTimeChange" @mouseleave="stopTimeChange">
+          ▲
+        </button>
         <p>{{ formattedDate }}</p>
-        <button @click="changeDate(-1)">▼</button>
+        <button @mousedown="startTimeChange(-24 * 60 * 60)" @mouseup="stopTimeChange" @mouseleave="stopTimeChange">
+          ▼
+        </button>
       </div>
       <div class="time">
-        <button @click="changeTime(60)">▲</button>
+        <button @mousedown="startTimeChange(60)" @mouseup="stopTimeChange" @mouseleave="stopTimeChange">
+          ▲
+        </button>
         <p>{{ formattedTime }}</p>
-        <button @click="changeTime(-60)">▼</button>
+        <button @mousedown="startTimeChange(-60)" @mouseup="stopTimeChange" @mouseleave="stopTimeChange">
+          ▼
+        </button>
       </div>
     </div>
-    <div class="controls">
+    <div v-else class="minimized-view" @click="toggleMinimized">
+      <p>{{ formattedDate }} {{ formattedTime }}</p>
+    </div>
+    <div v-if="!minimized" class="controls">
       <button @click="togglePlayPause">{{ isPlaying ? '❚❚' : '▶' }}</button>
       <button @click="resetTime">⟲</button>
     </div>
-    <div class="slider">
+    <div v-if="!minimized" class="slider">
       <input type="range" min="0" max="86340" step="1" v-model="sliderValue" @input="updateTimeFromSlider" />
     </div>
+    <button class="toggle-button" @click="toggleMinimized">
+      {{ minimized ? '▲' : '▼' }}
+    </button>
   </div>
 </template>
 
@@ -26,10 +40,12 @@
 export default {
   data() {
     return {
+      //currentDate: new Date(new Date().setDate(new Date().getDate() + 14)),
       currentDate: new Date(),
       sliderValue: 0,
       isPlaying: true,
       playInterval: null,
+      minimized: true,
     };
   },
   computed: {
@@ -44,6 +60,23 @@ export default {
     },
   },
   methods: {
+    startTimeChange(seconds) {
+      this.stopTimeChange();
+      this.changeTime(seconds);
+
+      let interval = 300;
+
+      this.holdInterval = setInterval(() => {
+        this.changeTime(seconds);
+      }, interval);
+    },
+
+    stopTimeChange() {
+      if (this.holdInterval) {
+        clearInterval(this.holdInterval);
+        this.holdInterval = null;
+      }
+    },
     changeDate(days) {
       const newDate = new Date(this.currentDate);
       newDate.setDate(this.currentDate.getDate() + days);
@@ -103,16 +136,23 @@ export default {
       clearInterval(this.playInterval);
       this.playInterval = null;
     },
+    toggleMinimized() {
+      this.minimized = !this.minimized;
+    },
   },
   mounted() {
     this.syncSliderWithTime();
     if (this.isPlaying) {
       this.startTimer(); // Запускаем таймер при монтировании
     }
+    window.addEventListener("mouseup", this.stopTimeChange);
   },
   beforeDestroy() {
-    this.stopTimer(); // Останавливаем таймер при уничтожении компонента
+    this.stopTimer();
+    this.stopTimeChange();
+    window.removeEventListener("mouseup", this.stopTimeChange);
   },
+
 };
 </script>
 

@@ -1,4 +1,4 @@
-import { Moon, Mars, Jupiter, Uranus, Neptune, Venus, Saturn, Mercury, Sun} from '@/utils/celestialBodies.js';
+import { Mars, Jupiter, Uranus, Neptune, Venus, Saturn, Mercury, Sun, CelestialBodyNew, MoonNew } from '@/utils/celestialBodies.js';
 import AstronomyHelper from '@/utils/AstronomyHelper.js';
 import { equatorial_to_cartesian } from '@/utils/algos.js';
 
@@ -16,9 +16,12 @@ export default class CelestialManager {
         this.root = root;
         this.camera = camera;
 
+        this.sun = new Sun(this.root, this.camera);
+    
         this.bodies = [
-            new Sun(this.root, this.camera),
-            new Moon(this.root, this.camera),
+            this.sun,
+            //new Moon(this.root, this.camera),
+            new MoonNew(this.root, this.camera),
             new Mars(this.root, this.camera),
             new Jupiter(this.root, this.camera),
             new Uranus(this.root, this.camera),
@@ -27,6 +30,8 @@ export default class CelestialManager {
             new Saturn(this.root, this.camera),
             new Mercury(this.root, this.camera),
         ]
+
+        this.moon = this.bodies[1];
     }
 
     /**
@@ -35,7 +40,6 @@ export default class CelestialManager {
      * @param {{ latitude: number, longitude: number, height?: number }} observer
      */
     updatePositions(date, observer) {
-
         for (let i = 0; i < this.bodies.length; i++) {
             const bodyInfo = AstronomyHelper.calculateCelestialBodyInfo(date, observer, this.bodies[i].name);
 
@@ -44,18 +48,27 @@ export default class CelestialManager {
 
             this.bodies[i].setNorth(...bodyInfo.northVector);
             this.bodies[i].setSpin(bodyInfo.spinRad);
+            this.bodies[i].setMag(bodyInfo.magnitude);
+
+            this.bodies[i].setCelestialPosition(bodyInfo.raRad, bodyInfo.decRad);
         }
 
         for (let i = 0; i < this.bodies.length; i++) {
-            this.bodies[i].setSunDir(this.bodies[0].pointPosition, this.bodies[0].distance);
+            this.bodies[i].setSunDir(this.sun.pointPosition, this.sun.distanceKm);
         }
-        
+
+        this.bodies.sort((a, b) => b.distanceKm - a.distanceKm);
+
+        for (let i = 0; i < this.bodies.length; i++) {
+            this.bodies[i].mesh.renderOrder = i + 10000; // Устанавливаем renderOrder от дальнего к ближнему
+        }
     }
 
     /**
     * Обновление позиции на экране перед отрисовкой кадра или изменении fov
     */
     update() {
+        this.bodies.sort((a, b) => a.distanceKm - b.distanceKm);
         for (let i = 0; i < this.bodies.length; i++) {
             this.bodies[i].updateTexturePosition();
             this.bodies[i].updateSize();

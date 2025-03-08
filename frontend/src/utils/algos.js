@@ -1,7 +1,9 @@
 import * as healpix from "@hscmap/healpix";
-import {temperatureColorTable} from "@/utils/temperatureColorTable.js";
+import { temperatureColorTable } from "@/utils/temperatureColorTable.js";
+import * as THREE from 'three';
+import Papa from 'papaparse';
 
-export function equatorial_to_cartesian(ra, dec, radius=1) {
+export function equatorial_to_cartesian(ra, dec, radius = 1) {
     const x = radius * -Math.cos(dec) * Math.sin(ra);
     const y = radius * Math.sin(dec);
     const z = radius * -Math.cos(dec) * Math.cos(ra);
@@ -28,6 +30,32 @@ export function equatorial_to_heal_ang(ra, dec) {
     const phi = ra;
 
     return [theta, phi];
+}
+
+
+
+export function isPixelVisible(norder, pix, camera, nest = true) {
+    const nside = 1 << norder;
+
+    let { theta, phi } = healpix.pix2ang_nest(nside, pix);
+    let ra = phi;
+    let dec = -(theta - Math.PI / 2);
+    const v = equatorial_to_cartesian(ra, dec);
+
+    const v3 = new THREE.Vector3();
+    camera.getWorldDirection(v3);
+
+    const tileCenterV = new THREE.Vector3(v[0], v[1], v[2]);
+
+    const angleBetweenVectors = (v1, v2, inDegrees = false) => inDegrees ? THREE.MathUtils.radToDeg(Math.acos(v1.dot(v2) / (v1.length() * v2.length()))) : Math.acos(v1.dot(v2) / (v1.length() * v2.length()));
+
+    const angleDeg = angleBetweenVectors(v3, tileCenterV, true);
+
+    if (angleDeg < camera.fov + Math.PI / 4 / nside * 90) {
+        return true;
+    } else {
+        return false;
+    }
 }
 
 
@@ -64,6 +92,55 @@ export function getVisiblePixels(cameraDirection, cameraFov) {
     return visiblePixels;
 }
 
+
+export function prepareStarsGeometryNew(csvText) {
+    const results = Papa.parse(csvText, {
+        header: true,
+        delimiter: ","
+    });
+
+    // Фильтруем строки, где отсутствует значение для ra, dec или phot_g_mean_mag
+    const data = results.data.filter(row => row.ra && row.dec && row.phot_g_mean_mag);
+
+    const starCount = data.length;
+
+    const positions = new Float32Array(starCount * 3);
+    const vmags = new Float32Array(starCount);
+    const colors = new Float32Array(starCount * 3);
+
+    for (let i = 0; i < starCount; i++) {
+        const row = data[i];
+        // Преобразуем ra и dec в числа и переводим в радианы
+        const ra_deg = parseFloat(row.ra);
+        const dec_deg = parseFloat(row.dec);
+        const ra_rad = ra_deg * Math.PI / 180;
+        const dec_rad = dec_deg * Math.PI / 180;
+
+        // Получаем декартовы координаты звезды (с радиусом r = 10)
+        const pos = equatorial_to_cartesian(ra_rad, dec_rad, 10);
+        positions[i * 3] = pos[0];
+        positions[i * 3 + 1] = pos[1];
+        positions[i * 3 + 2] = pos[2];
+
+        // phot_g_mean_mag как vmag
+        vmags[i] = parseFloat(row.phot_g_mean_mag);
+
+        // Цвет звезды — белый (1, 1, 1)
+        colors[i * 3] = 1;
+        colors[i * 3 + 1] = 1;
+        colors[i * 3 + 2] = 1;
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('vmag', new THREE.Float32BufferAttribute(vmags, 1));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+    return geometry;
+}
+
+
+
 export function prepareStarsGeometry(stars_data) {
     const starCount = stars_data.length;
     const positions = new Float32Array(starCount * 3);
@@ -97,18 +174,18 @@ export function prepareStarsGeometry(stars_data) {
         vmags[i] = vmag;
     });
 
-    return {'positions': positions, 'vmags': vmags, 'colors': colors};
+    return { 'positions': positions, 'vmags': vmags, 'colors': colors };
 }
 
 
 function bvToTemperature(bv) {
     const points = [
-        {bv: -0.5, T: 30000}, // Голубой
-        {bv: 0.1, T: 7000},  // Белый
-        {bv: 0.6, T: 5000},   // Желтоватый
-        {bv: 0.8, T: 4000},   // Жёлтый
-        {bv: 1.22, T: 3800},   // Красный
-        {bv: 2.6, T: 3500}    // Красный
+        { bv: -0.5, T: 30000 }, // Голубой
+        { bv: 0.1, T: 7000 },  // Белый
+        { bv: 0.6, T: 5000 },   // Желтоватый
+        { bv: 0.8, T: 4000 },   // Жёлтый
+        { bv: 1.22, T: 3800 },   // Красный
+        { bv: 2.6, T: 3500 }    // Красный
     ];
 
 
@@ -153,6 +230,8 @@ export function bvToColor(bv) {
     const hexColor = temperatureColorTable.get(roundedTemp);
     return hexToRgb(hexColor, temperature);
 }
+
+
 
 
 export function calculateSizePx(fov, windowHeight, radius, distance) {

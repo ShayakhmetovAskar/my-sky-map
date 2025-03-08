@@ -39,6 +39,9 @@ export default {
 
     const axis = Astronomy.RotationAxis(target, correctedDate);
 
+
+    const illumination = Astronomy.Illumination(target, correctedDate);
+
     return {
       coordinatesCartesian: equatorial_to_cartesian(
         equatorial.ra / 24 * 2 * Math.PI,
@@ -54,6 +57,7 @@ export default {
         1
       ),
       spinRad: (axis.spin % 360) / 180 * Math.PI,
+      magnitude: illumination.mag,
     }
   },
 

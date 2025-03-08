@@ -5,6 +5,11 @@ export default class SceneManager {
     this.container = container;
 
     this.scene = new THREE.Scene();
+    
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4); // белый свет, 50% интенсивности
+    this.scene.add(ambientLight);
+    
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
@@ -17,7 +22,7 @@ export default class SceneManager {
       120,                                     // FOV
       window.innerWidth / window.innerHeight,  // aspect
       0.1,                                     // near
-      20                                       // far
+      1000                                      // far
     );
 
     this.camera.position.set(0, 0, 0.001);

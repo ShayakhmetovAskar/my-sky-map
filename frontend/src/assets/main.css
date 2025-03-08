@@ -6,3 +6,7 @@ body {
   height: 100%;
   overflow: hidden;
 }
+
+.disable-dbl-tap-zoom {
+  touch-action: manipulation;
+}

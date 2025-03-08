@@ -1,10 +1,20 @@
 import math
 
+from pathlib import Path
+from pydantic_settings import  BaseSettings
 from fastapi import FastAPI, Depends, Query, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.database import get_db
 from db.queries import get_stars_nside_pix
+
+
+class Settings(BaseSettings):
+    data_root: str
+
+    class Config:
+        env_file = ".env"
 
 
 def validate_parameters(nside: int, pix: int):
@@ -28,6 +38,8 @@ def validate_parameters(nside: int, pix: int):
             detail=f"pix must be less than {max_pix} for nside={nside}"
         )
 
+settings = Settings()
+DATA_ROOT = Path(settings.data_root)
 
 app = FastAPI()
 
@@ -57,3 +69,32 @@ async def get_stars_in_fov_api(
         }
         for star in stars
     ]
+
+
+@app.get("/surveys/dss/v1/Norder{norder}/Npix{npix}")
+async def get_dss_tile(norder: int, npix: int):
+    file_path = (
+        DATA_ROOT
+        / "surveys"
+        / "dss"
+        / "v1"
+        / f"Norder{norder}"
+        / f"Npix{npix}.jpg"
+    )
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(path=file_path, media_type="image/jpeg")
+
+
+@app.get("/stars/v1/Norder{norder}/Npix{npix}")
+async def get_stars_tile(norder: int, npix: int):
+    file_path = (
+        DATA_ROOT / "stars" / "v1" / f"Norder{norder}" / f"Npix{npix}.csv"
+    )
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(path=file_path, media_type="text/csv")

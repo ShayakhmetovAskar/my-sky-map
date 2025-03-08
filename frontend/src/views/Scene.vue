@@ -20,6 +20,7 @@ import GridManager from '@/managers/GridManager';
 import CelestialManager from '@/managers/CelestialManager';
 import UIManager from '@/managers/UIManager';
 import TimeSelector from '@/components/TimeSelector.vue';
+import HealpixManager from '@/managers/HealpixManager';
 
 export default {
   name: 'Scene',
@@ -38,6 +39,8 @@ export default {
     let gridManager = null;
     let celestialManager = null;
     let uiManager = null;
+    let deepSkyManager = null;
+    let healpixManager = null;
 
     const debugList = ref([0, 0, 0, 0]);
 
@@ -50,8 +53,9 @@ export default {
         height: 0,
       };
 
-      starManager.updateStars();
+//      starManager.updateStars();
       celestialManager.updatePositions(newDate, observer);
+      celestialManager.update();
     };
 
     onMounted(() => {
@@ -64,20 +68,38 @@ export default {
       starManager = new StarManager(sceneManager.camera, sceneManager.scene);
       celestialManager = new CelestialManager(sceneManager.camera, sceneManager.scene)
       uiManager = new UIManager(hudRef.value);
+      healpixManager = new HealpixManager(sceneManager.scene);
+      healpixManager.update();
 
+
+      
+      // ≥controlsManager.lockTarget(celestialManager.bodies[3]);
 
       sceneManager.startAnimationLoop((deltaTime, elapsedTime, scene, camera) => {
+        
         controlsManager.update();
         celestialManager.update();
+        try {
+          //const pos = celestialManager.moon.pointPosition;
+          //sceneManager.camera.lookAt(pos);
+        } catch {
+          
+        }
+    
+        
         const text =
+          `tiles_loaded: ` + healpixManager.tileManager.currentTiles.length + `\n` + 
           `fov: ${camera.fov.toFixed(2)}
           ` + (starManager.isLoading ? '\nloading stars...' : '');
         uiManager.updateHUD(text);
+        healpixManager.setOrder(sceneManager.camera);
       });
+
+      
 
       controlsManager.onFovChanged = (newFov) => {
         celestialManager.update();
-        starManager.updateFOV();
+        //starManager.updateFOV();
       }
 
       window.app = {
@@ -86,43 +108,38 @@ export default {
           debugList.value[0] = newX;
           debugList.value[1] = newY;
           debugList.value[2] = newZ;
-          
-          celestialManager.bodies[2].update(
-            debugList.value[0],
-            debugList.value[1],
-            debugList.value[2]
-          );
+          healpixManager.subdivide();
         },
       };
     });
 
     onBeforeUnmount(() => {
       if (sceneManager) {
-        sceneManager.dispose();
+        //sceneManager.dispose();
         sceneManager = null;
       }
       if (updateStarsInterval) {
-        clearInterval(updateStarsInterval);
+        //clearInterval(updateStarsInterval);
         updateStarsInterval = null;
       }
       if (controlsManager) {
-        controlsManager.dispose();
+        //controlsManager.dispose();
         controlsManager = null;
       }
       if (starManager) {
-        starManager.dispose();
+        // starManager.dispose();
         starManager = null;
       }
       if (gridManager) {
-        gridManager.dispose();
+        //gridManager.dispose();
         gridManager = null;
       }
       if (uiManager) {
-        uiManager.dispose();
+        //uiManager.dispose();
         uiManager = null;
       }
       if (celestialManager) {
-        celestialManager.dispose();
+        //celestialManager.dispose();
         celestialManager = null;
       }
     });

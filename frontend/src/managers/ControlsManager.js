@@ -8,8 +8,10 @@ export default class ControlsManager {
    */
   constructor(camera, domElement) {
     this.camera = camera;
-    
+
     this.domElement = domElement;
+
+    this.target = null;
 
     this.fovMin = 0.01;
     this.fovMax = 120;
@@ -29,6 +31,8 @@ export default class ControlsManager {
 
     this.isPinching = false;
     this.previousPinchDistance = 0;
+
+    
 
     this._bindEvents();
   }
@@ -64,13 +68,13 @@ export default class ControlsManager {
     this.camera.fov = newFov;
     this.camera.updateProjectionMatrix();
 
-    this.controls.rotateSpeed = -1 * this.camera.fov / 200;
+    this.controls.rotateSpeed = (-1) * this.camera.fov / 200;
 
     this.controls.minDistance = this._mapFovToDistance(newFov);
     this.controls.maxDistance = this._mapFovToDistance(newFov);
 
     if (this.onFovChanged) {
-        this.onFovChanged(newFov);
+      this.onFovChanged(newFov);
     }
   }
 
@@ -87,6 +91,7 @@ export default class ControlsManager {
    */
   onTouchStart(event) {
     if (event.touches.length === 2) {
+      event.preventDefault();
       this.isPinching = true;
       this.previousPinchDistance = this._getPinchDistance(event);
     }
@@ -97,7 +102,7 @@ export default class ControlsManager {
    */
   onTouchMove(event) {
     if (!this.isPinching || event.touches.length !== 2) return;
-    event.preventDefault();
+
 
     const currentDistance = this._getPinchDistance(event);
     const deltaDistance = currentDistance - this.previousPinchDistance;
@@ -105,8 +110,8 @@ export default class ControlsManager {
     const sensitivity = 6;
     const deltaFov = -(deltaDistance * sensitivity);
 
-    let newFov = this.currentFov + deltaFov * 0.01;
-    
+    let newFov = this.currentFov + deltaFov * 0.2 * (this.currentFov / 240);
+
     this._onFovChange(newFov);
 
     this.previousPinchDistance = currentDistance;
@@ -116,6 +121,7 @@ export default class ControlsManager {
    * Завершение тач-жеста
    */
   onTouchEnd(event) {
+    event.preventDefault();
     if (event.touches.length < 2) {
       this.isPinching = false;
       this.previousPinchDistance = 0;
@@ -135,8 +141,31 @@ export default class ControlsManager {
    * Вызов в animate loop, чтобы OrbitControls обновлялись
    */
   update() {
+    this.updateLockTarget();
     this.controls.update();
   }
+
+  lockTarget(target) {
+    this.target = target;
+  }
+
+  updateLockTarget() {
+    if (!this.target) return;
+    let ra = this.target.ra;
+    let dec = this.target.dec;
+    this.controls.minPolarAngle = Math.PI / 2 + dec;
+    this.controls.maxPolarAngle = Math.PI / 2 + dec;
+    this.controls.minAzimuthAngle = ra;
+    this.controls.maxAzimuthAngle = ra;
+  }
+
+  unlockTarget() {
+    this.controls.minPolarAngle = 0;
+    this.controls.maxPolarAngle = Math.PI;
+    this.controls.minAzimuthAngle = 0;
+    this.controls.maxAzimuthAngle = Math.PI * 2;
+  }
+
 
   /**
    * cleanup
@@ -160,7 +189,7 @@ export default class ControlsManager {
   _mapFovToDistance(fov) {
 
     if (fov <= 60) {
-        return 0.01;
+      return 0.01;
     }
 
     return 7 / 60 * fov - 7;

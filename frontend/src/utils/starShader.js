@@ -1,14 +1,18 @@
 import * as THREE from "three";
-import {ShaderMaterial} from "three";
+import { ShaderMaterial } from "three";
 
 export const createStarMaterial = () => {
-    return new ShaderMaterial({
-        uniforms: {
-            fov: {value: 120.0},
-        },
-        vertexShader: `
+  return new ShaderMaterial({
+    uniforms: {
+      fov: { value: 120.0 },
+      planetVmag: { value: -1000 },
+    },
+    vertexShader: `
       attribute float vmag;
       attribute vec3 color;
+
+      uniform float planetVmag; //hack for planet glow effect  
+
       uniform float fov; 
       varying float vAlpha;
       varying float size;
@@ -25,14 +29,20 @@ export const createStarMaterial = () => {
         } else {
             d = 4.0 * (1.0 - fov/120.0);
         }
-        return min(50.0, a * exp(-b * (vmag - d)) + c);
+        return min(22.0, a * exp(-b * (vmag - d)) + c);
       }
           
       void main() {
         vColor = color;
         vAlpha = 1.0;
         float scale = 1.0;
-        size = vmag2size(vmag);
+
+        if (planetVmag > -999.0) {
+          size = vmag2size(planetVmag);
+        } else {
+          size = vmag2size(vmag);
+        }
+        
         if (size < 1.5) { //TODO make fov dependence
             gl_PointSize = 0.0;
             return;
@@ -44,20 +54,28 @@ export const createStarMaterial = () => {
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
-        fragmentShader: `
-      varying vec3 vColor;
-      varying float vAlpha;
-      varying float size; // Получаем значение size
-      void main() {
-        vec2 coord = gl_PointCoord - vec2(0.5); // Центрирование координат в [0, 0]
-        float dist = length(coord); // Расстояние от центра
-        if (dist > 0.5) {
-          discard; // Удаляем пиксели за пределами диска
-        }
-        float alpha = 1.0 - smoothstep(0.4, 0.5, dist); // Плавный переход к краям диска
-        gl_FragColor = vec4(vColor, alpha * vAlpha);
-      }
+    fragmentShader: `
+varying vec3 vColor;
+varying float vAlpha;
+varying float size;
+
+void main() {
+  vec2 coord = gl_PointCoord - vec2(0.5);
+  float dist = length(coord);
+
+  // Вместо discard – плавно уменьшаем альфу до 0
+  float alpha = 1.0 - smoothstep(0.45, 0.55, dist);
+
+  // Можно добавить экспоненциальный градиент для еще более плавного затухания:
+  float radialGradient = 1.0;
+  alpha *= radialGradient;
+
+  gl_FragColor = vec4(vColor, alpha * vAlpha);
+}
+
     `,
-        transparent: true,
-    });
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+
+  });
 };

@@ -4,14 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 4000",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@hscmap/healpix": "^1.4.12",
     "astronomy-engine": "^2.1.19",
-    "papaparse": "^5.4.1",
+    "papaparse": "^5.5.2",
     "quick-lru": "^7.0.0",
     "three": "^0.171.0",
     "vite-plugin-commonjs": "^0.10.4",
@@ -21,6 +21,7 @@
     "@rollup/plugin-commonjs": "^28.0.1",
     "@vitejs/plugin-vue": "^5.2.1",
     "vite": "^6.0.1",
+    "vite-plugin-string": "^1.2.3",
     "vite-plugin-vue-devtools": "^7.6.5"
   }
 }

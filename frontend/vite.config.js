@@ -1,5 +1,6 @@
 import {fileURLToPath, URL} from 'node:url';
 import {defineConfig, loadEnv} from 'vite';
+import stringPlugin from 'vite-plugin-string';
 import vue from '@vitejs/plugin-vue';
 import vueDevTools from 'vite-plugin-vue-devtools';
 
@@ -10,6 +11,11 @@ export default defineConfig(({mode}) => {
         plugins: [
             vue(),
             vueDevTools(),
+            stringPlugin({
+                include: [
+                    '**/*.glsl',
+                ],
+            }),
         ],
         resolve: {
             alias: {

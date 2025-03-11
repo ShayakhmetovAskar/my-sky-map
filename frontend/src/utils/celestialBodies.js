@@ -5,6 +5,8 @@ import { calculateSizePx } from './algos';
 import { randFloat } from 'three/src/math/MathUtils';
 import { createStarMaterial } from './starShader';
 
+import vertexShader from '../shaders/vertexNew.glsl'
+import fragmentShader from '../shaders/fragmentNew.glsl'
 
 function loadShaderSync(url) {
     const xhr = new XMLHttpRequest();
@@ -49,9 +51,6 @@ export class CelestialBodyNew {
         texture.magFilter = THREE.LinearFilter;
         texture.generateMipmaps = false;
 
-        const vertexShader = loadShaderSync('shaders/vertexNew.glsl');
-        const fragmentShader = loadShaderSync('shaders/fragmentNew.glsl');
-
         this.material = new THREE.ShaderMaterial({
             uniforms: {
                 uTexture: { value: texture },
@@ -68,7 +67,6 @@ export class CelestialBodyNew {
             depthTest: false,
             depthWrite: false,
         });
-
 
         this.ra = 0;
         this.dec = 0;

@@ -46,14 +46,16 @@ export default {
 
 
     const onTimeChanged = (newDate) => {
-
       const observer = {
         latitude: 59.9343,
         longitude: 30.3351,
         height: 0,
       };
 
-//      starManager.updateStars();
+      if (!celestialManager) {
+        return;
+      }
+
       celestialManager.updatePositions(newDate, observer);
       celestialManager.update();
     };
@@ -72,30 +74,20 @@ export default {
       healpixManager.update();
 
 
-      
-      // ≥controlsManager.lockTarget(celestialManager.bodies[3]);
-
       sceneManager.startAnimationLoop((deltaTime, elapsedTime, scene, camera) => {
-        
         controlsManager.update();
         celestialManager.update();
-        try {
-          //const pos = celestialManager.moon.pointPosition;
-          //sceneManager.camera.lookAt(pos);
-        } catch {
-          
-        }
-    
-        
+
+
         const text =
-          `tiles_loaded: ` + healpixManager.tileManager.currentTiles.length + `\n` + 
+          `tiles_loaded: ` + healpixManager.tileManager.currentTiles.length + `\n` +
           `fov: ${camera.fov.toFixed(2)}
           ` + (starManager.isLoading ? '\nloading stars...' : '');
         uiManager.updateHUD(text);
         healpixManager.setOrder(sceneManager.camera);
       });
 
-      
+
 
       controlsManager.onFovChanged = (newFov) => {
         celestialManager.update();

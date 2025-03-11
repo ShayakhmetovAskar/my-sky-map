@@ -24,6 +24,9 @@
       <p>{{ formattedDate }} {{ formattedTime }}</p>
     </div>
     <div v-if="!minimized" class="controls">
+      <button @click="decreaseMultiplier">&lt;&lt;</button>
+      <span>{{ multiplier }}x</span>
+      <button @click="increaseMultiplier">&gt;&gt;</button>
       <button @click="togglePlayPause">{{ isPlaying ? '❚❚' : '▶' }}</button>
       <button @click="resetTime">⟲</button>
     </div>
@@ -40,12 +43,12 @@
 export default {
   data() {
     return {
-      //currentDate: new Date(new Date().setDate(new Date().getDate() + 14)),
       currentDate: new Date(),
       sliderValue: 0,
       isPlaying: true,
-      playInterval: null,
+      playTimeout: null, // заменили playInterval на playTimeout
       minimized: true,
+      multiplier: 1, // множитель скорости времени, не может быть меньше 1
     };
   },
   computed: {
@@ -65,12 +68,10 @@ export default {
       this.changeTime(seconds);
 
       let interval = 300;
-
       this.holdInterval = setInterval(() => {
         this.changeTime(seconds);
       }, interval);
     },
-
     stopTimeChange() {
       if (this.holdInterval) {
         clearInterval(this.holdInterval);
@@ -84,13 +85,11 @@ export default {
       this.emitTimeChange();
     },
     changeTime(seconds) {
-      const newDate = new Date(this.currentDate);
-      newDate.setSeconds(this.currentDate.getSeconds() + seconds);
+      const newDate = new Date(this.currentDate.getTime() + seconds * 1000);
       this.currentDate = newDate;
       this.syncSliderWithTime();
       this.emitTimeChange();
     },
-
     togglePlayPause() {
       this.isPlaying = !this.isPlaying;
       if (this.isPlaying) {
@@ -122,15 +121,22 @@ export default {
 
       this.emitTimeChange();
     },
-
     emitTimeChange() {
       this.$emit("time-changed", this.currentDate);
     },
     startTimer() {
-      if (this.playInterval) return;
-      this.playInterval = setInterval(() => {
-        this.changeTime(1); // Увеличиваем время на 1 секунду каждую секунду
-      }, 1000);
+      if (this.playTimeout) return;
+      const tick = () => {
+        if (!this.isPlaying) return;
+        // Вычисляем интервал: при multiplier=1 интервал будет 1000 мс,
+        // а чем больше multiplier, тем меньше интервал, но не менее 50 мс
+        const tickInterval = Math.max(10, 1000 / this.multiplier);
+        // При каждом тике прибавляем multiplier * (tickInterval/1000) секунд.
+        // За одну секунду (1000 мс) суммарно прибавится multiplier секунд.
+        this.changeTime(this.multiplier * (tickInterval / 1000));
+        this.playTimeout = setTimeout(tick, tickInterval);
+      };
+      tick();
     },
     stopTimer() {
       clearInterval(this.playInterval);
@@ -139,11 +145,20 @@ export default {
     toggleMinimized() {
       this.minimized = !this.minimized;
     },
+    increaseMultiplier() {
+      // Умножаем множитель на 10
+      this.multiplier = Math.round(this.multiplier * 10 * 100) / 100;
+    },
+    decreaseMultiplier() {
+      // Делим множитель на 10, но не опускаем его ниже 1
+      const newMultiplier = this.multiplier / 10;
+      this.multiplier = Math.max(1, Math.round(newMultiplier * 100) / 100);
+    },
   },
   mounted() {
     this.syncSliderWithTime();
     if (this.isPlaying) {
-      this.startTimer(); // Запускаем таймер при монтировании
+      this.startTimer(); // запускаем таймер при монтировании
     }
     window.addEventListener("mouseup", this.stopTimeChange);
   },
@@ -152,7 +167,6 @@ export default {
     this.stopTimeChange();
     window.removeEventListener("mouseup", this.stopTimeChange);
   },
-
 };
 </script>
 
@@ -200,6 +214,7 @@ button:hover {
   display: flex;
   justify-content: center;
   gap: 10px;
+  align-items: center;
 }
 
 .slider {

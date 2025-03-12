@@ -84,6 +84,8 @@ export class JsonLoader {
         this.maxConcurrent = maxConcurrent;
         this.currentCount = 0;
         this.csvCache = new LRUCache(100);
+
+        this.loadingSet = new Set();
     }
 
     getFile(norder, pix) {
@@ -118,26 +120,30 @@ export class JsonLoader {
             }
         }
 
+        if (this.loadingSet.has(key)) return;
+
         if (this.currentCount >= this.maxConcurrent) {
             return;
         }
 
+        this.loadingSet.add(key);
         this.currentCount++;
         fetch(url)
             .then(response => {
                 if (response.ok) {
                     return response.text();
-                } else {
-                    throw new Error(`Ошибка загрузки файла: ${response.status}`);
                 }
+                throw new Error(`Ошибка загрузки файла: ${response.status}`);
             })
             .then(text => {
                 this.csvCache.put(key, text);
-                this.currentCount--;
             })
-            .catch(error => {
+            .catch(() => {
                 const timeoutMs = this.failureTimeoutSeconds * 1000;
                 this.failedUrls.put(url, Date.now() + timeoutMs);
+            })
+            .finally(() => {
+                this.loadingSet.delete(key);
                 this.currentCount--;
             });
     }

@@ -1,4 +1,11 @@
 services:
+  backend:
+    container_name: fastapi_backend_dev
+
+  frontend:
+    container_name: vite_frontend_dev
+
+services:
   nginx_proxy:
     ports:
       - "8889:80"

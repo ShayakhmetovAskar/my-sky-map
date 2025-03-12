@@ -6,5 +6,6 @@ services:
     container_name: vite_frontend_dev
 
   nginx_proxy:
+    container_name: skymap_nginx_dev
     ports:
       - "8889:80"

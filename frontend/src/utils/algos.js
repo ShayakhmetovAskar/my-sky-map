@@ -34,7 +34,7 @@ export function equatorial_to_heal_ang(ra, dec) {
 
 
 
-export function isPixelVisible(norder, pix, camera, nest = true) {
+export function isPixelVisible(norder, pix, camera, group, nest = true) {
     const nside = 1 << norder;
 
     let { theta, phi } = healpix.pix2ang_nest(nside, pix);
@@ -46,6 +46,7 @@ export function isPixelVisible(norder, pix, camera, nest = true) {
     camera.getWorldDirection(v3);
 
     const tileCenterV = new THREE.Vector3(v[0], v[1], v[2]);
+    tileCenterV.applyMatrix4(group.matrixWorld);
 
     const angleBetweenVectors = (v1, v2, inDegrees = false) => inDegrees ? THREE.MathUtils.radToDeg(Math.acos(v1.dot(v2) / (v1.length() * v2.length()))) : Math.acos(v1.dot(v2) / (v1.length() * v2.length()));
 
@@ -57,6 +58,41 @@ export function isPixelVisible(norder, pix, camera, nest = true) {
         return false;
     }
 }
+
+
+export function getWorldUp(lon, lat) {
+    // lat in north 90, equator 0, south -90
+    return equatorial_to_cartesian(0, lat);
+}
+
+export function getZenithRaDecFast(dateUtc, latDeg, lonDeg) {
+    // 1) d = число суток, прошедших с 2000-01-01 12:00:00 UTC
+    const msSinceJ2000 = dateUtc.getTime() - Date.UTC(2000, 0, 1, 12, 0, 0);
+    const d = msSinceJ2000 / 86400000; // миллисекунды -> дни
+
+    // 2) Вычисляем гринвичское звёздное время (GMST) в градусах (приближённая формула)
+    //    GMST_deg = 280.4606 + 360.9856473 * d
+    let gmstDeg = 280.4606 + 360.9856473 * d;
+    // Приводим к диапазону [0..360)
+    gmstDeg = ((gmstDeg % 360) + 360) % 360;
+
+    // 3) Переводим GMST из градусов в часы
+    let gmstHours = gmstDeg / 15;
+
+    // 4) Переходим к местному звёздному времени (LST), добавляя долготу в часах
+    //    (lonDeg>0 для востока)
+    let lstHours = gmstHours + lonDeg / 15;
+    // Приводим в диапазон [0..24)
+    lstHours = ((lstHours % 24) + 24) % 24;
+
+    // 5) Зенит: RA = LST (часы), Dec = latDeg (градусы)
+    //    (упрощённо без геоцентрических поправок)
+    const ra = lstHours;
+    const dec = latDeg;
+
+    return { ra, dec };
+}
+
 
 
 export function getVisiblePixels(cameraDirection, cameraFov) {

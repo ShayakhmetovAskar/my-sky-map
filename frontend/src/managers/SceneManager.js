@@ -1,14 +1,19 @@
 import * as THREE from 'three';
+import { getZenithRaDecFast } from '@/utils/algos';
 
 export default class SceneManager {
   constructor(container) {
     this.container = container;
 
     this.scene = new THREE.Scene();
+    this.skyGroup = new THREE.Group();
+    this.lat = 0;
     
 
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.4); // белый свет, 50% интенсивности
     this.scene.add(ambientLight);
+    this.scene.add(this.skyGroup)
+    
     
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -42,6 +47,34 @@ export default class SceneManager {
     this.camera.updateProjectionMatrix();
 
     this.renderer.setSize(width, height);
+  }
+
+  setSkyNorth(lon, lat) {
+    this.lat = lat;
+  }
+
+  rotateSky(lon, lat, date) {
+    this.skyGroup.quaternion.identity();
+
+    // 2) Рассчитываем нужные углы
+    const latRad = (lat - 90) * Math.PI / 180;
+    const { ra } = getZenithRaDecFast(date, lat, lon);
+    const raRad = ra * Math.PI / 12 - Math.PI / 2;
+
+    // 3) Делаем кватернион для поворота по Z:
+    const qZ = new THREE.Quaternion();
+    qZ.setFromAxisAngle(new THREE.Vector3(0, 0, 1), latRad);
+
+    // 4) Делаем кватернион для поворота по локальной Y:
+    const qY = new THREE.Quaternion();
+    qY.setFromAxisAngle(new THREE.Vector3(0, -1, 0), raRad);
+
+    // 5) Перемножаем их в нужном порядке
+    //    Сначала повернуть Z (qZ), потом вокруг (уже повернутой) локальной Y (qY)
+    qZ.multiply(qY);
+
+    // 6) Применяем результат
+    this.skyGroup.quaternion.copy(qZ);
   }
 
   /**

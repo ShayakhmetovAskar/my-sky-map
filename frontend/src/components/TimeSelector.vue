@@ -140,7 +140,7 @@ export default {
     },
     stopTimer() {
       clearInterval(this.playInterval);
-      this.playInterval = null;
+      this.playTimeout = null;
     },
     toggleMinimized() {
       this.minimized = !this.minimized;
@@ -148,6 +148,7 @@ export default {
     increaseMultiplier() {
       // Умножаем множитель на 10
       this.multiplier = Math.round(this.multiplier * 10 * 100) / 100;
+      this.multiplier = Math.min(this.multiplier, 10000000);
     },
     decreaseMultiplier() {
       // Делим множитель на 10, но не опускаем его ниже 1

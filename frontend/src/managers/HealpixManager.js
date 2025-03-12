@@ -32,11 +32,12 @@ class HealpixTile {
 
 class TileManager {
     constructor(group, baseUrl) {
-        this.dss_tiles = new THREE.Group();
+        this.dss_tiles = group;
         this.stars_tiles = group;
+        this.group = group;
         // this.stars_tiles.renderOrder = 20;
         // this.dss_tiles.renderOrder = 40;
-        group.add(this.dss_tiles);
+        //group.add(this.dss_tiles);
         //group.add(this.stars_tiles);
         this.baseUrlDss = baseUrl;
         this.baseUrlStars = '/api/stars/v1';
@@ -60,7 +61,7 @@ class TileManager {
 
         while (queue.length > 0) {
             const tile = queue.shift();
-            if (!isPixelVisible(tile.order, tile.pix, camera, true)) {
+            if (!isPixelVisible(tile.order, tile.pix, camera, this.group, true)) {
                 continue;
             }
             allTiles.push(tile);

@@ -7,6 +7,10 @@
 
   <div id="time-selector-wrapper">
     <TimeSelector ref="timeSelectorRef" @time-changed="onTimeChanged" />
+    <div class="button-row">
+      <LocationSelector ref="locationSelectorRef" @location-changed="onLocationChanged" />
+      <TerrainToggleButton @toggle-terrain="onTerrainToggle" />
+    </div>
   </div>
 
 </template>
@@ -14,43 +18,49 @@
 <script>
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import SceneManager from '@/managers/SceneManager.js';
-import StarManager from '@/managers/StarManager.js';
 import ControlsManager from '@/managers/ControlsManager';
 import GridManager from '@/managers/GridManager';
 import CelestialManager from '@/managers/CelestialManager';
 import UIManager from '@/managers/UIManager';
+import GroundManager from '@/managers/GroundManager';
 import TimeSelector from '@/components/TimeSelector.vue';
+import TerrainToggleButton from '@/components/TerrainToggleButton.vue';
+import LocationSelector from '@/components/LocationSelector.vue';
 import HealpixManager from '@/managers/HealpixManager';
+import { getWorldUp } from '@/utils/algos';
 
 export default {
   name: 'Scene',
   components: {
     TimeSelector,
+    LocationSelector,
+    TerrainToggleButton,
   },
   setup() {
     const threeContainer = ref(null);
     const hudRef = ref(null);
     const timeSelectorRef = ref(null);
+    const locationSelectorRef = ref(null);
+    const terrainToggleButton = ref(null);
 
     let sceneManager = null;
-    let starManager = null;
     let updateStarsInterval = null;
     let controlsManager = null;
     let gridManager = null;
     let celestialManager = null;
     let uiManager = null;
-    let deepSkyManager = null;
+    let groundManager = null;
     let healpixManager = null;
 
     const debugList = ref([0, 0, 0, 0]);
 
+    const observer = {
+      latitude: 59.9343,
+      longitude: 30.3351,
+      height: 0,
+    };
 
     const onTimeChanged = (newDate) => {
-      const observer = {
-        latitude: 59.9343,
-        longitude: 30.3351,
-        height: 0,
-      };
 
       if (!celestialManager) {
         return;
@@ -58,37 +68,56 @@ export default {
 
       celestialManager.updatePositions(newDate, observer);
       celestialManager.update();
+
+      if (!sceneManager)
+        return;
+
+      sceneManager.rotateSky(observer.longitude, observer.latitude, newDate);
+    };
+
+    const onLocationChanged = (newLocation) => {
+      observer.latitude = newLocation.latitude;
+      observer.longitude = newLocation.longitude;
+      sceneManager.setSkyNorth(observer.longitude, observer.latitude);
+    };
+
+    const onTerrainToggle = () => {
+      if (groundManager && groundManager.groundMesh) {
+        const newVisible = !groundManager.groundMesh.visible;
+        groundManager.setVisible(newVisible);
+      }
     };
 
     onMounted(() => {
       sceneManager = new SceneManager(threeContainer.value);
-      gridManager = new GridManager(sceneManager.scene);
+      gridManager = new GridManager(sceneManager.skyGroup);
       controlsManager = new ControlsManager(
         sceneManager.camera,
         sceneManager.renderer.domElement
       );
-      starManager = new StarManager(sceneManager.camera, sceneManager.scene);
-      celestialManager = new CelestialManager(sceneManager.camera, sceneManager.scene)
+
+      celestialManager = new CelestialManager(sceneManager.camera, sceneManager.skyGroup);
       uiManager = new UIManager(hudRef.value);
-      healpixManager = new HealpixManager(sceneManager.scene);
+      healpixManager = new HealpixManager(sceneManager.skyGroup);
+      groundManager = new GroundManager(sceneManager.scene);
       healpixManager.update();
 
-
+    
       sceneManager.startAnimationLoop((deltaTime, elapsedTime, scene, camera) => {
         controlsManager.update();
         celestialManager.update();
 
-
         const text =
           `tiles_loaded: ` + healpixManager.tileManager.currentTiles.length + `\n` +
-          `fov: ${camera.fov.toFixed(2)}
-          ` + (starManager.isLoading ? '\nloading stars...' : '');
+          `fov: ${camera.fov.toFixed(2)}`;
         uiManager.updateHUD(text);
         healpixManager.setOrder(sceneManager.camera);
+        //sceneManager.skyGroup.rotateY(scene.skyGroup.rotation + 0.0001);
+  
+        
       });
 
-
-
+      
       controlsManager.onFovChanged = (newFov) => {
         celestialManager.update();
         //starManager.updateFOV();
@@ -118,10 +147,6 @@ export default {
         //controlsManager.dispose();
         controlsManager = null;
       }
-      if (starManager) {
-        // starManager.dispose();
-        starManager = null;
-      }
       if (gridManager) {
         //gridManager.dispose();
         gridManager = null;
@@ -140,8 +165,12 @@ export default {
       threeContainer,
       hudRef,
       timeSelectorRef,
+      locationSelectorRef,
+      terrainToggleButton,
       debugList,
-      onTimeChanged
+      onTimeChanged,
+      onLocationChanged,
+      onTerrainToggle
     };
   }
 };
@@ -169,5 +198,10 @@ export default {
   bottom: 20px;
   right: 20px;
   z-index: 999;
+}
+
+.button-row {
+  display: flex;
+  gap: 10px;
 }
 </style>

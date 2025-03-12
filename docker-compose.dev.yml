@@ -23,7 +23,7 @@ services:
     image: nginx:alpine
     container_name: skymap_nginx_dev
     volumes:
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/conf.d:/etc/nginx/conf.dev.d:ro
     ports:
       - "8889:80"
     depends_on:

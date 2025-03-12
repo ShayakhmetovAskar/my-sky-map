@@ -1,0 +1,23 @@
+name: CI/CD for dev
+
+on:
+  push:
+    branches: [ "dev" ]
+
+jobs:
+  deploy_dev:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Git pull and build containers
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd ${{ secrets.REMOTE_PATH_DEV }}
+            git fetch --all
+            git reset --hard origin/dev
+            docker-compose down
+            docker-compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
+

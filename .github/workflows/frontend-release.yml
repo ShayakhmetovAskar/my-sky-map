@@ -1,0 +1,64 @@
+name: Frontend Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to confirm'
+        required: true
+        default: ''
+
+jobs:
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Validate input
+      if: github.event.inputs.confirm != 'deploy'
+      run: |
+        echo "❌ Deployment cancelled. Please type 'deploy' to confirm."
+        exit 1
+    
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install dependencies
+      run: |
+        cd frontend
+        npm ci
+    
+    - name: Build frontend
+      run: |
+        cd frontend
+        npm run build
+    
+    - name: Configure AWS CLI for Yandex Cloud
+      run: |
+        aws configure set aws_access_key_id ${{ secrets.YC_ACCESS_KEY_ID }}
+        aws configure set aws_secret_access_key ${{ secrets.YC_SECRET_ACCESS_KEY }}
+        aws configure set region ru-central1
+    
+    - name: Deploy to S3
+      run: |
+        echo "🚀 Starting deployment to S3..."
+        
+        aws s3 sync frontend/dist/ s3://${{ secrets.YC_BUCKET_NAME }}/ \
+          --endpoint-url=https://storage.yandexcloud.net \
+          --delete \
+          --exact-timestamps
+        
+        echo "✅ Frontend deployed successfully!"
+        echo "🌐 Your site should be available at your S3 bucket URL"
+    
+    - name: Show deployment info
+      run: |
+        echo "📦 Bucket: ${{ secrets.YC_BUCKET_NAME }}"
+        echo "📁 Build folder: frontend/dist/"
+        echo "🎉 Deployment completed!"

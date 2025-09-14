@@ -76,6 +76,6 @@ void main() {
     `,
     transparent: true,
     blending: THREE.AdditiveBlending,
-
+    depthTest: false,
   });
 };

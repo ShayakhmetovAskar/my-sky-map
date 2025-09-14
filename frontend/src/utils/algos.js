@@ -34,6 +34,7 @@ export function equatorial_to_heal_ang(ra, dec) {
 
 
 
+
 export function isPixelVisible(norder, pix, camera, group, nest = true) {
     const nside = 1 << norder;
 
@@ -58,6 +59,8 @@ export function isPixelVisible(norder, pix, camera, group, nest = true) {
         return false;
     }
 }
+
+
 
 
 export function getWorldUp(lon, lat) {
@@ -144,6 +147,21 @@ export function prepareStarsGeometryNew(csvText) {
     const vmags = new Float32Array(starCount);
     const colors = new Float32Array(starCount * 3);
 
+    const brightestStars = [];
+    const findInsertIndex = (array, value, key) => {
+        let low = 0;
+        let high = array.length;
+        while (low < high) {
+            const mid = (low + high) >>> 1;
+            if (array[mid][key] < value) {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+        return low;
+    };
+
     for (let i = 0; i < starCount; i++) {
         const row = data[i];
         // Преобразуем ra и dec в числа и переводим в радианы
@@ -159,12 +177,33 @@ export function prepareStarsGeometryNew(csvText) {
         positions[i * 3 + 2] = pos[2];
 
         // phot_g_mean_mag как vmag
-        vmags[i] = parseFloat(row.phot_g_mean_mag);
+        const currentMag = parseFloat(row.phot_g_mean_mag);
+        vmags[i] = currentMag;
 
         // Цвет звезды — белый (1, 1, 1)
         colors[i * 3] = 1;
         colors[i * 3 + 1] = 1;
         colors[i * 3 + 2] = 1;
+
+        // Обновление списка самых ярких звезд
+        const starInfo = {
+            source_id: row.source_id,
+            ra: ra_deg,
+            dec: dec_deg,
+            phot_g_mean_mag: currentMag,
+            position: new THREE.Vector3(...pos)
+        };
+
+        if (brightestStars.length < 10000) {
+            const index = findInsertIndex(brightestStars, currentMag, 'phot_g_mean_mag');
+            brightestStars.splice(index, 0, starInfo);
+        } else {
+            if (currentMag < brightestStars[brightestStars.length - 1].phot_g_mean_mag) {
+                const index = findInsertIndex(brightestStars, currentMag, 'phot_g_mean_mag');
+                brightestStars.splice(index, 0, starInfo);
+                brightestStars.pop();
+            }
+        }
     }
 
     const geometry = new THREE.BufferGeometry();
@@ -172,7 +211,10 @@ export function prepareStarsGeometryNew(csvText) {
     geometry.setAttribute('vmag', new THREE.Float32BufferAttribute(vmags, 1));
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
-    return geometry;
+    // Если вдруг набралось меньше 10.
+    brightestStars.length = Math.min(brightestStars.length, 10000);
+
+    return {geometry, brightestStars};
 }
 
 

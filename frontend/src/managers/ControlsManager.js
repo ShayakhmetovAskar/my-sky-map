@@ -78,6 +78,10 @@ export default class ControlsManager {
     }
   }
 
+  setFov(newFov) {
+    this._onFovChange(newFov);
+  }
+
 
   onWheel(event) {
     event.preventDefault();

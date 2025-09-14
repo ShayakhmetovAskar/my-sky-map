@@ -1,16 +1,17 @@
 import { LRUCache } from "./LRUCache";
 import * as THREE from 'three';
 import { heal2equatorial, hipspix2healpix, isNorthAdjacent } from '@/utils/healpix.js';
+import { API_CONFIG } from '@/settings/api';
 
 const textureLoader = new THREE.TextureLoader();
 
 
 class TextureLoader {
-    constructor(maxConcurrent = 5) {
-        this.failureTimeoutSeconds = 10;
+    constructor(maxConcurrent = 10) {
+        this.failureTimeoutSeconds = 20;
         this.failedUrls = new LRUCache(100);
 
-        this.baseUrl = '/api/surveys/dss/v1';
+        this.baseUrl = API_CONFIG.DSS_SURVEYS.baseUrl;
         this.maxConcurrent = maxConcurrent;
         this.currentCount = 0;
         this.rootTextures = []
@@ -29,6 +30,18 @@ class TextureLoader {
 
         for (let i = 0; i < 12; i++) {
             const texture = textureLoader.load(`/Norder0/Npix${i}.jpg`);
+            // Улучшенные настройки текстуры
+            texture.colorSpace = THREE.SRGBColorSpace; // Правильное цветовое пространство
+            texture.minFilter = THREE.LinearMipmapLinearFilter; // Сглаживание при уменьшении
+            texture.magFilter = THREE.LinearFilter; // Сглаживание при увеличении
+            texture.wrapS = THREE.ClampToEdgeWrapping; // Предотвращаем повторение
+            texture.wrapT = THREE.ClampToEdgeWrapping;
+            texture.generateMipmaps = true; // Генерируем мипмапы для лучшего качества
+            //texture.flipY = false; // Отключаем переворот по Y, если нужно
+
+            // Принудительно обновляем текстуру
+            texture.needsUpdate = true;
+
             this.rootTextures.push(texture);
         }
 
@@ -39,8 +52,9 @@ class TextureLoader {
         return `${norder}/${pix}`;
     }
 
+    // Изменение функции getUrl для формирования нового URL картинок
     getUrl(norder, pix) {
-        return `${this.baseUrl}/Norder${norder}/Npix${pix}`;
+        return `http://storage.yandexcloud.net/skymap-static-data/dss/v1/Norder${norder}/Npix${pix}.jpg`;
     }
 
     /**
@@ -151,6 +165,16 @@ class TextureLoader {
 
             // onLoad callback
             (texture) => {
+                texture.colorSpace = THREE.SRGBColorSpace; // Правильное цветовое пространство
+                texture.minFilter = THREE.LinearMipmapLinearFilter; // Сглаживание при уменьшении
+                texture.magFilter = THREE.LinearFilter; // Сглаживание при увеличении
+                texture.wrapS = THREE.ClampToEdgeWrapping; // Предотвращаем повторение
+                texture.wrapT = THREE.ClampToEdgeWrapping;
+                texture.generateMipmaps = true; // Генерируем мипмапы для лучшего качества
+                //texture.flipY = false; // Отключаем переворот по Y, если нужно
+
+                // Принудительно обновляем текстуру
+                texture.needsUpdate = true;
                 this.textureCacheMain.put(this.getKey(norder, pix), texture);
                 this.currentCount--;
             },

@@ -1,20 +1,17 @@
 <template>
   <div id="app">
-    <Scene />
-    
+    <router-view v-slot="{ Component }">
+      <keep-alive exclude="Scene">
+        <component :is="Component" />
+      </keep-alive>
+    </router-view>
   </div>
 </template>
 
 <script>
-
-import Scene from "./views/Scene.vue";
-
 export default {
-  name: 'App',
-  components: {
-    Scene,
-  },
-};
+  name: 'App'
+}
 </script>
 
 <style> 
@@ -23,6 +20,5 @@ export default {
   padding: 0;
   width: 100%;
   height: 100%;
-  overflow: hidden;
 }
 </style>

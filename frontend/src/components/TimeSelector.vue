@@ -53,7 +53,7 @@ export default {
   },
   computed: {
     formattedDate() {
-      return this.currentDate.toISOString().split("T")[0];
+      return this.currentDate.toLocaleDateString();
     },
     formattedTime() {
       const hours = this.currentDate.getHours().toString().padStart(2, "0");
@@ -139,6 +139,7 @@ export default {
       tick();
     },
     stopTimer() {
+      this.isPlaying = false;
       clearInterval(this.playInterval);
       this.playTimeout = null;
     },
@@ -162,6 +163,7 @@ export default {
       this.startTimer(); // запускаем таймер при монтировании
     }
     window.addEventListener("mouseup", this.stopTimeChange);
+    this.$emit('ready');
   },
   beforeDestroy() {
     this.stopTimer();

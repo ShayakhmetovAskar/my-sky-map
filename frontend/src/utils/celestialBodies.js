@@ -96,6 +96,10 @@ export class CelestialBodyNew {
         this.scene.add(this.glow);
     }
 
+    setUp(up) {
+        this.mesh.up.set(up.x, up.y, up.z);
+    }
+
     setMag(mag) {
         this.glow.material.uniforms.planetVmag.value = mag;
         //this.glow.material.uniforms.
@@ -121,7 +125,7 @@ export class CelestialBodyNew {
     }
 
     updateTexturePosition() {
-        this.mesh.lookAt(this.camera.position);
+        this.mesh.lookAt(0, 0, 0);
     }
 
     updateSize() {

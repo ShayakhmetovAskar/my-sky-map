@@ -29,3 +29,10 @@ SQLAlchemy==2.0.36
 starlette==0.41.3
 typing_extensions==4.12.2
 uvicorn==0.32.1
+celery==5.5.0
+psycopg2-binary==2.9.5
+astropy==6.1.7
+aiofiles==23.2.1
+python-multipart
+redis
+minio==7.2.15

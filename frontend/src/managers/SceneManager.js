@@ -10,13 +10,14 @@ export default class SceneManager {
     this.lat = 0;
     
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4); // белый свет, 50% интенсивности
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1); // белый свет, 50% интенсивности
     this.scene.add(ambientLight);
     this.scene.add(this.skyGroup)
     
     
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer.sortObjects = true;
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
 
@@ -75,6 +76,13 @@ export default class SceneManager {
 
     // 6) Применяем результат
     this.skyGroup.quaternion.copy(qZ);
+  }
+
+  getUp() {
+    this.skyGroup.updateMatrixWorld(); // Обновляем мировую матрицу объекта
+    let worldUp = new THREE.Vector3();
+    worldUp.setFromMatrixColumn(this.skyGroup.matrixWorld, 1).normalize();
+    return worldUp
   }
 
   /**

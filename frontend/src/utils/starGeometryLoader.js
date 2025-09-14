@@ -2,6 +2,7 @@ import { LRUCache } from "./LRUCache";
 import * as THREE from 'three';
 import { prepareStarsGeometryNew } from "./algos";
 import { createStarMaterial } from '@/utils/starShader.js';
+import { API_CONFIG } from '@/settings/api';
 
 export class StarsMeshLoader {
     constructor(group) {
@@ -10,15 +11,15 @@ export class StarsMeshLoader {
         this.starMaterial = createStarMaterial();
 
         this.pointsCache = new LRUCache(100);
-        this.pointsCache.onEvict = (key, mesh) => {
-            this.group.remove(mesh);
-            if (mesh.geometry) {
-                mesh.geometry.dispose();
+        this.pointsCache.onEvict = (key, entry) => {
+            this.group.remove(entry.mesh);
+            if (entry.mesh.geometry) {
+                entry.mesh.geometry.dispose();
             }
-            if (mesh.material) {
-                Array.isArray(mesh.material)
-                    ? mesh.material.forEach(mat => mat.dispose())
-                    : mesh.material.dispose();
+            if (entry.mesh.material) {
+                Array.isArray(entry.mesh.material)
+                    ? entry.mesh.material.forEach(mat => mat.dispose())
+                    : entry.mesh.material.dispose();
             }
         };
     }
@@ -32,7 +33,7 @@ export class StarsMeshLoader {
     }
 
     getUrl(norder, pix) {
-        return `${this.baseUrl}/Norder${norder}/Npix${pix}`;
+        return `${this.baseUrl}/Norder${norder}/Npix${pix}.csv`;
     }
 
     getMesh(norder, pix) {
@@ -51,24 +52,36 @@ export class StarsMeshLoader {
         }
         const key = this.getKey(norder, pix);
         const text = csvFile;
-        const geometry = prepareStarsGeometryNew(text);
+        const {geometry, brightestStars} = prepareStarsGeometryNew(text);
         const points = new THREE.Points(geometry, this.starMaterial);
         points.renderOrder = -1000;
+        
         this.group.add(points);
-        this.pointsCache.put(key, points);
+        
+        this.pointsCache.put(key, {
+            mesh: points,
+            brightestStars: brightestStars
+        });
+    }
+
+    getBrightestStars(norder, pix) {
+        const key = this.getKey(norder, pix);
+        const entry = this.pointsCache.get(key);
+        return entry?.brightestStars ?? [];
     }
 
     update(currentTiles) {
-        for (const [key, points] of this.pointsCache) {
-            points.visible = false;
+        for (const [key, entry] of this.pointsCache) {
+            entry.mesh.visible = false;
         }
+
         for (const tile of currentTiles) {
             const order = tile.order;
             const pix = tile.pix;
             const key = this.getKey(order, pix);
-            let points = this.pointsCache.get(key);
-            if (points) {
-                points.visible = true;
+            let entry = this.pointsCache.get(key);
+            if (entry?.mesh) {
+                entry.mesh.visible = true;
             } else {
                 this.createMesh(order, pix);
             }
@@ -80,7 +93,7 @@ export class JsonLoader {
     constructor(maxConcurrent = 5) {
         this.failureTimeoutSeconds = 10;
         this.failedUrls = new LRUCache(100);
-        this.baseUrl = '/api/stars/v1';
+        this.baseUrl = API_CONFIG.STARS.baseUrl;
         this.maxConcurrent = maxConcurrent;
         this.currentCount = 0;
         this.csvCache = new LRUCache(100);
@@ -103,7 +116,7 @@ export class JsonLoader {
     }
 
     getUrl(norder, pix) {
-        return `${this.baseUrl}/Norder${norder}/Npix${pix}`;
+        return `${this.baseUrl}/Norder${norder}/Npix${pix}.csv`;
     }
 
     load(norder, pix) {

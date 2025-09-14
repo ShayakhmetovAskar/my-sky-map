@@ -17,7 +17,7 @@ export default class CelestialManager {
         this.camera = camera;
 
         this.sun = new Sun(this.root, this.camera);
-    
+
         this.bodies = [
             this.sun,
             //new Moon(this.root, this.camera),
@@ -31,7 +31,7 @@ export default class CelestialManager {
             new Mercury(this.root, this.camera),
         ]
 
-        this.moon = this.bodies[1];
+        this.moon = this.bodies[8];
     }
 
     /**
@@ -67,9 +67,12 @@ export default class CelestialManager {
     /**
     * Обновление позиции на экране перед отрисовкой кадра или изменении fov
     */
-    update() {
+    update(up) {
         this.bodies.sort((a, b) => a.distanceKm - b.distanceKm);
         for (let i = 0; i < this.bodies.length; i++) {
+            if (up) {
+                this.bodies[i].setUp(up);
+            }
             this.bodies[i].updateTexturePosition();
             this.bodies[i].updateSize();
         }

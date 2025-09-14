@@ -17,6 +17,19 @@ export default defineConfig(({mode}) => {
                 ],
             }),
         ],
+        server: {
+            port: 4000,
+            proxy: {
+                '/dss': {
+                    target: 'https://storage.yandexcloud.net/skymap-static-data',
+                    changeOrigin: true,
+                },
+                '/stars': {
+                    target: 'https://storage.yandexcloud.net/skymap-static-data',
+                    changeOrigin: true,
+                }
+            }
+        },
         resolve: {
             alias: {
                 '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -25,11 +38,29 @@ export default defineConfig(({mode}) => {
         server: {
             proxy: {
                 '/api': {
-                    target: env.VITE_API_URL,
+                    target: 'https://skymapdev.afsh.space',
                     changeOrigin: true,
-                    rewrite: (path) => path.replace(/^\/api/, ''),
-                },
-            },
-        },
+                    configure: (proxy, options) => {
+                        proxy.on('proxyReq', (proxyReq, req) => {
+                            console.log(
+                                '[proxyReq]',
+                                req.method,
+                                req.url,
+                                '→',
+                                options.target
+                            )
+                        })
+                        proxy.on('proxyRes', (proxyRes, req, res) => {
+                            console.log(
+                                '[proxyRes]',
+                                req.url,
+                                'status:',
+                                proxyRes.statusCode
+                            )
+                        })
+                    }
+                }
+            }
+        }
     };
 });

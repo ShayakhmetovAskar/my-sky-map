@@ -175,22 +175,29 @@ export default {
 
 <style scoped>
 .time-slider {
-  background: #2b2b2b;
+  background: rgba(28, 28, 36, 0.95);
   color: #fff;
-  padding: 20px;
-  border-radius: 10px;
-  max-width: 300px;
-  font-family: Arial, sans-serif;
+  padding: 16px;
+  border-radius: 12px;
+  max-width: 320px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 12px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.3s ease;
 }
 
 .date-time {
   display: flex;
-  flex-direction: column;
+  justify-content: space-between;
   align-items: center;
-  gap: 10px;
+  gap: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 12px;
+  border-radius: 8px;
 }
 
 .date,
@@ -198,40 +205,123 @@ export default {
   display: flex;
   flex-direction: column;
   align-items: center;
+  flex: 1;
+}
+
+.date p,
+.time p {
+  font-size: 1.1em;
+  font-weight: 500;
+  margin: 8px 0;
+  letter-spacing: 0.5px;
 }
 
 button {
-  background: none;
+  background: rgba(255, 255, 255, 0.1);
   border: none;
   color: #fff;
-  font-size: 18px;
+  font-size: 16px;
   cursor: pointer;
-  margin: 5px 0;
+  margin: 2px 0;
+  padding: 6px 12px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
 }
 
 button:hover {
-  color: #00f;
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(1.05);
 }
 
 .controls {
   display: flex;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.controls span {
+  font-size: 0.9em;
+  font-weight: 500;
+  min-width: 60px;
+  text-align: center;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
 }
 
 .slider {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
+  padding: 8px 4px;
 }
 
 input[type="range"] {
   width: 100%;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  outline: none;
 }
 
-p {
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+}
+
+.toggle-button {
+  align-self: center;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 4px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.minimized {
+  max-width: 200px;
+  padding: 10px;
+}
+
+.minimized-view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.minimized-view:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.minimized-view p {
   margin: 0;
+  font-size: 0.9em;
+  font-weight: 500;
 }
 </style>

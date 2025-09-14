@@ -74,20 +74,24 @@ export default {
 /* Кнопка */
 .location-button {
     cursor: pointer;
-    background: #333;
+    background: rgba(28, 28, 36, 0.95);
     color: #fff;
     font-size: 18px;
-    border: none;
-    border-radius: 50%;
-    width: 40px;
-    height: 40px;
-    text-align: center;
-    line-height: 40px;
-    transition: background 0.2s;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
 .location-button:hover {
-    background: #555;
+    background: rgba(255, 255, 255, 0.15);
+    transform: scale(1.05);
 }
 
 /* Затемнение фона при открытом модальном окне */
@@ -97,8 +101,8 @@ export default {
     left: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(0, 0, 0, 0.6);
-    /* полупрозрачный фон */
+    background-color: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(5px);
     display: flex;
     justify-content: center;
     align-items: center;
@@ -107,68 +111,93 @@ export default {
 
 /* Сама карточка с вводом */
 .location-modal {
-    background: #2b2b2b;
-    border-radius: 10px;
-    padding: 20px;
-    width: 300px;
+    background: rgba(28, 28, 36, 0.95);
+    border-radius: 12px;
+    padding: 24px;
+    width: 320px;
     max-width: 90%;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    transform: scale(1);
+    transition: transform 0.3s ease;
 }
 
 .modal-content {
     display: flex;
     flex-direction: column;
-    gap: 15px;
+    gap: 20px;
     color: #fff;
-    font-family: Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 h2 {
     margin: 0;
-    font-size: 20px;
+    font-size: 1.2em;
+    font-weight: 500;
     text-align: center;
+    letter-spacing: 0.5px;
+    color: rgba(255, 255, 255, 0.9);
 }
 
 .coords-inputs {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 16px;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 16px;
+    border-radius: 8px;
 }
 
 .coords-inputs label {
     display: flex;
     flex-direction: column;
-    font-size: 14px;
+    gap: 6px;
+    font-size: 0.9em;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.8);
 }
 
 /* Кнопки внутри модального окна */
 .modal-buttons {
     display: flex;
     justify-content: space-between;
-    gap: 10px;
+    gap: 12px;
 }
 
 .modal-buttons button {
     flex: 1;
-    background: #444;
+    background: rgba(255, 255, 255, 0.1);
     color: #fff;
     border: none;
     cursor: pointer;
-    padding: 8px 10px;
-    transition: background 0.2s;
-    border-radius: 5px;
+    padding: 10px;
+    transition: all 0.2s ease;
+    border-radius: 8px;
+    font-size: 0.9em;
+    font-weight: 500;
+    border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .modal-buttons button:hover {
-    background: #666;
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-1px);
 }
 
 input[type="number"] {
-    margin-top: 5px;
-    border-radius: 4px;
-    border: 1px solid #555;
-    padding: 5px;
-    background: #1e1e1e;
+    margin-top: 2px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.2);
     color: #fff;
+    font-size: 1em;
+    transition: all 0.2s ease;
+}
+
+input[type="number"]:focus {
+    border-color: rgba(255, 255, 255, 0.3);
+    outline: none;
+    background: rgba(0, 0, 0, 0.3);
 }
 </style>

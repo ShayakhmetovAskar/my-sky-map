@@ -2,23 +2,12 @@ name: Frontend Release
 
 on:
   workflow_dispatch:
-    inputs:
-      confirm:
-        description: 'Type "deploy" to confirm'
-        required: true
-        default: ''
 
 jobs:
   deploy-frontend:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Validate input
-      if: github.event.inputs.confirm != 'deploy'
-      run: |
-        echo "❌ Deployment cancelled. Please type 'deploy' to confirm."
-        exit 1
-    
     - name: Checkout code
       uses: actions/checkout@v4
     
@@ -26,18 +15,15 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-        cache: 'npm'
-        cache-dependency-path: frontend/package-lock.json
     
-    - name: Install dependencies
+    - name: Install dependencies and build
       run: |
         cd frontend
-        npm ci
-    
-    - name: Build frontend
-      run: |
-        cd frontend
+        npm install
         npm run build
+        
+        echo "📂 Build completed. Contents of frontend/dist:"
+        ls -la dist/
     
     - name: Configure AWS CLI for Yandex Cloud
       run: |
@@ -47,18 +33,21 @@ jobs:
     
     - name: Deploy to S3
       run: |
-        echo "🚀 Starting deployment to S3..."
+        echo "🚀 Deploying to S3 bucket: ${{ secrets.YC_BUCKET_NAME }}"
         
-        aws s3 sync frontend/dist/ s3://${{ secrets.YC_BUCKET_NAME }}/ \
+        cd frontend
+        aws s3 sync dist/ s3://${{ secrets.YC_BUCKET_NAME }}/ \
           --endpoint-url=https://storage.yandexcloud.net \
           --delete \
-          --exact-timestamps
+          --exclude ".DS_Store" \
+          --exclude "*.map"
         
         echo "✅ Frontend deployed successfully!"
-        echo "🌐 Your site should be available at your S3 bucket URL"
+        echo "🌐 Your site should be available at your bucket URL"
     
-    - name: Show deployment info
+    - name: Show deployment summary
       run: |
-        echo "📦 Bucket: ${{ secrets.YC_BUCKET_NAME }}"
-        echo "📁 Build folder: frontend/dist/"
-        echo "🎉 Deployment completed!"
+        echo "📦 Deployed from: frontend/dist/"
+        echo "🏺 S3 Bucket: ${{ secrets.YC_BUCKET_NAME }}"
+        echo "🎯 Endpoint: https://storage.yandexcloud.net"
+        echo "🎉 Deployment completed at $(date)"

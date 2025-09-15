@@ -20,31 +20,49 @@ export default class LabelManager {
     }
 
     /**
-     * Создает текстовый спрайт из строки
+     * Создает текстовый спрайт из строки (минималистичный стиль)
      * @param {string} text - Текст для отображения
      * @param {string} color - Цвет текста (по умолчанию 'white')
-     * @param {number} fontSize - Размер шрифта (по умолчанию 6)
-     * @param {number} scaleFactor - Фактор масштабирования (по умолчанию 4)
+     * @param {number} fontSize - Размер шрифта (по умолчанию 5)
+     * @param {number} scaleFactor - Фактор масштабирования (по умолчанию 3)
      * @returns {THREE.Sprite} - Созданный спрайт
      */
-    createTextSprite(text, color = 'white', fontSize = 6, scaleFactor = 4) {
+    createTextSprite(text, color = 'rgba(255, 255, 255, 0.9)', fontSize = 5, scaleFactor = 3) {
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');
-        const largeFontSize = fontSize * scaleFactor; // Increase font size for clarity
-        context.font = `${largeFontSize}px Arial`;
+        
+        const largeFontSize = fontSize * scaleFactor;
+        context.font = `300 ${largeFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
+        
         const textWidth = context.measureText(text).width;
-        const padding = 10 * scaleFactor;
+        const padding = 4 * scaleFactor; // Минимальные отступы
+        
         canvas.width = textWidth + padding;
         canvas.height = largeFontSize + padding;
-        context.font = `${largeFontSize}px Arial`; // Set font again after resizing
+        
+        // Чистый минималистичный текст с тонким шрифтом
+        context.font = `200 ${largeFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
         context.fillStyle = color;
-        context.fillText(text, padding / 2, largeFontSize + padding / 2);
+        context.textAlign = 'left';
+        context.textBaseline = 'top';
+        context.fillText(text, padding / 2, padding / 2);
+        
         const texture = new THREE.Texture(canvas);
         texture.needsUpdate = true;
-        const spriteMaterial = new THREE.SpriteMaterial({ map: texture, depthTest: false });
+        
+        const spriteMaterial = new THREE.SpriteMaterial({ 
+            map: texture, 
+            transparent: true,
+            depthTest: false 
+        });
+        
         const sprite = new THREE.Sprite(spriteMaterial);
-        const spriteScale = 1 / scaleFactor; // Scale down the sprite
-        sprite.scale.set((textWidth + padding) / 10 * spriteScale, (largeFontSize + padding) / 10 * spriteScale, 1);
+        const spriteScale = 1 / scaleFactor;
+        sprite.scale.set(
+            (textWidth + padding) / 10 * spriteScale, 
+            (largeFontSize + padding) / 10 * spriteScale, 
+            1
+        );
 
         return sprite;
     }

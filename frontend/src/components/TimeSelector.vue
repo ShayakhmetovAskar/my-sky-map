@@ -49,6 +49,10 @@ export default {
       playTimeout: null, // заменили playInterval на playTimeout
       minimized: true,
       multiplier: 1, // множитель скорости времени, не может быть меньше 1
+      
+      // Для плавного времени
+      lastBaseTime: null,
+      accumulatedTime: 0,
     };
   },
   computed: {
@@ -140,8 +144,10 @@ export default {
     },
     stopTimer() {
       this.isPlaying = false;
-      clearInterval(this.playInterval);
-      this.playTimeout = null;
+      if (this.playTimeout) {
+        clearTimeout(this.playTimeout);
+        this.playTimeout = null;
+      }
     },
     toggleMinimized() {
       this.minimized = !this.minimized;
@@ -156,6 +162,24 @@ export default {
       const newMultiplier = this.multiplier / 10;
       this.multiplier = Math.max(1, Math.round(newMultiplier * 100) / 100);
     },
+    getSmoothTime(deltaTime) {
+      // Возвращает плавное время для анимационного цикла
+      const baseTime = this.currentDate;
+      
+      // Если базовое время изменилось, сбрасываем накопленное время
+      if (!this.lastBaseTime || this.lastBaseTime.getTime() !== baseTime.getTime()) {
+        this.lastBaseTime = new Date(baseTime);
+        this.accumulatedTime = 0;
+      }
+      
+      // Накопляем время только если игра не на паузе
+      if (this.isPlaying) {
+        this.accumulatedTime += deltaTime * this.multiplier;
+      }
+      
+      // Создаем плавное время
+      return new Date(this.lastBaseTime.getTime() + this.accumulatedTime * 1000);
+    }
   },
   mounted() {
     this.syncSliderWithTime();

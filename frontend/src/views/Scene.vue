@@ -92,10 +92,7 @@ export default {
       celestialManager.updatePositions(newDate, observer);
       celestialManager.update();
 
-      if (!sceneManager)
-        return;
-
-      sceneManager.rotateSky(observer.longitude, observer.latitude, newDate);
+      // rotateSky теперь вызывается каждый кадр в анимационном цикле
     };
 
     const onLocationChanged = (newLocation) => {
@@ -146,12 +143,17 @@ export default {
         controlsManager.update();
         celestialManager.update(sceneManager.getUp());
 
+        // Получаем плавное время из TimeSelector
+        if (timeSelectorRef.value) {
+          const smoothTime = timeSelectorRef.value.getSmoothTime(deltaTime);
+          sceneManager.rotateSky(observer.longitude, observer.latitude, smoothTime);
+        }
+
         const text =
           `tiles_loaded: ` + healpixManager.tileManager.currentTiles.length + `\n` +
           `fov: ${camera.fov.toFixed(2)}`;
         uiManager.updateHUD(text);
         healpixManager.setOrder(sceneManager.camera);
-        //sceneManager.skyGroup.rotateY(scene.skyGroup.rotation + 0.0001);
 
       });
 

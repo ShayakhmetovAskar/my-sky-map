@@ -8,6 +8,7 @@ import { createStarMaterial } from '@/utils/starShader.js';
 import { StarsMeshLoader } from '@/utils/starGeometryLoader';
 import { LRUCache } from '@/utils/LRUCache';
 import * as healpix from "@hscmap/healpix";
+import LabelManager from '@/managers/LabelManager';
 
 class HealpixTile {
     constructor(order, pix) {
@@ -191,76 +192,12 @@ export default class HealpixManager {
         this.baseUrl = baseUrl;
         this.managerGroup = scene;
         this.tileManager = new TileManager(this.managerGroup, this.baseUrl);
-        // Create a group for labels and add it to the scene
-        this.labelsGroup = new THREE.Group();
-        this.scene.add(this.labelsGroup);
 
-        this.nameCache = new LRUCache(500);
-        this.pendingLookups = new Set()
-
-        this.labelsCache = new LRUCache(100, (key, sprite) => {
-            if (sprite) {
-                // Dispose of the sprite's material and texture
-                if (sprite.material && sprite.material.map) {
-                    sprite.material.map.dispose();
-                }
-                if (sprite.material) {
-                    sprite.material.dispose();
-                }
-                // Note: Do not dispose of the sprite itself, as it's a THREE.Object3D
-            }
-        });
-
+        // Создаем LabelManager для работы с текстовыми спрайтами
+        this.labelManager = new LabelManager(this.scene);
     }
 
-    async fetchAndCacheStarName(source_id) {
-        if (this.nameCache.has(source_id) || this.pendingLookups.has(source_id)) return;
 
-        if (this.pendingLookups.size > 5) {
-            return;
-        }
-
-        this.pendingLookups.add(source_id);
-        try {
-            const res = await fetch(`/api/star/${source_id}`);
-            const data = await res.json();
-            if (data?.ProperName) {
-                this.nameCache.put(source_id, data.ProperName);
-            } else {
-                this.nameCache.put(source_id, null);
-            }
-        } catch (e) {
-            console.error('Ошибка при получении имени звезды:', e);
-        } finally {
-            this.pendingLookups.delete(source_id);
-        }
-    }
-
-    // Function to create a text sprite from a given string
-    createTextSprite(text, color = 'white', fontSize = 6, scaleFactor = 4) {
-
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        const largeFontSize = fontSize * scaleFactor; // Increase font size for clarity
-        context.font = `${largeFontSize}px Arial`;
-        const textWidth = context.measureText(text).width;
-        const padding = 10 * scaleFactor;
-        canvas.width = textWidth + padding;
-        canvas.height = largeFontSize + padding;
-        context.font = `${largeFontSize}px Arial`; // Set font again after resizing
-        context.fillStyle = color;
-        context.fillText(text, padding / 2, largeFontSize + padding / 2);
-        const texture = new THREE.Texture(canvas);
-        texture.needsUpdate = true;
-        const spriteMaterial = new THREE.SpriteMaterial({ map: texture, depthTest: false });
-        const sprite = new THREE.Sprite(spriteMaterial);
-        const spriteScale = 1 / scaleFactor; // Scale down the sprite
-        sprite.scale.set((textWidth + padding) / 10 * spriteScale, (largeFontSize + padding) / 10 * spriteScale, 1);
-
-        //this.labelsCache.put(text, sprite);
-
-        return sprite;
-    }
 
     async update() {
         // Placeholder for update logic if needed
@@ -285,7 +222,7 @@ export default class HealpixManager {
         } else if (camera.fov > 0.25) {
             order = 7;
         } else {
-            order = 8;
+            order = 7;
         }
         await this.tileManager.setOrder(order, camera);
 
@@ -294,15 +231,15 @@ export default class HealpixManager {
         const brightestStars = this.tileManager.brightestStars || [];
 
         // Очищаем старые метки
-        this.labelsGroup.clear();
+        this.labelManager.clearLabels();
 
         const scalingFactor = camera.fov / 120;
 
         for (const star of this.tileManager.brightestStars || []) {
-            let name = this.nameCache.get(star.source_id);
+            let name = this.labelManager.getStarName(star.source_id);
 
             if (name === undefined) {
-                this.fetchAndCacheStarName(star.source_id); // Запускаем в фоне
+                this.labelManager.fetchAndCacheStarName(star.source_id); // Запускаем в фоне
                 continue; // Не отрисовываем
             }
 
@@ -310,11 +247,11 @@ export default class HealpixManager {
                 name = star.phot_g_mean_mag.toString();
             }
 
-            const sprite = this.createTextSprite(name);
+            const sprite = this.labelManager.createTextSprite(name);
             sprite.position.copy(new THREE.Vector3(...star.position));
             sprite.center.set(0, 0.5);
             sprite.scale.multiplyScalar(scalingFactor);
-            this.labelsGroup.add(sprite);
+            this.labelManager.addLabel(sprite);
         }
     }
 }

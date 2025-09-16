@@ -17,6 +17,11 @@ export const API_CONFIG = {
         }
     },
     
+    // Star Names API
+    STAR_NAMES: {
+        baseUrl: 'https://skymapdev.afsh.space/api/star'
+    },
+    
     // Common configuration
     DEFAULT_HEADERS: {
         'Content-Type': 'application/json',

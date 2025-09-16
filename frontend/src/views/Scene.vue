@@ -29,6 +29,7 @@
 
 <script>
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
+import * as THREE from 'three';
 import SceneManager from '@/managers/SceneManager.js';
 import ControlsManager from '@/managers/ControlsManager';
 import GridManager from '@/managers/GridManager';
@@ -36,6 +37,7 @@ import CelestialManager from '@/managers/CelestialManager';
 import UIManager from '@/managers/UIManager';
 import GroundManager from '@/managers/GroundManager';
 import LabelManager from '@/managers/LabelManager';
+import GraphicsDebugManager from '@/managers/GraphicsDebugManager';
 import TimeSelector from '@/components/TimeSelector.vue';
 import TerrainToggleButton from '@/components/TerrainToggleButton.vue';
 import LocationSelector from '@/components/LocationSelector.vue';
@@ -77,6 +79,7 @@ export default {
     let healpixManager = null;
     let overlayManager = null;
     let labelManager = null;
+    let debugManager = null;
 
     const debugList = ref([0, 0, 0, 0]);
 
@@ -126,14 +129,17 @@ export default {
         sceneManager.renderer.domElement
       );
 
-      // Инициализируем LabelManager
-      labelManager = new LabelManager(sceneManager.skyGroup);
+      // Инициализируем LabelManager с передачей sceneManager
+      labelManager = new LabelManager(sceneManager.skyGroup, sceneManager);
+
+      // Инициализируем GraphicsDebugManager для отладки
+      debugManager = new GraphicsDebugManager(sceneManager.skyGroup);
 
       // Инициализируем CelestialManager с LabelManager
       celestialManager = new CelestialManager(sceneManager.camera, sceneManager.skyGroup, labelManager);
       celestialManager.updatePositions(new Date(), observer);
       uiManager = new UIManager(hudRef.value);
-      healpixManager = new HealpixManager(sceneManager.skyGroup);
+      healpixManager = new HealpixManager(sceneManager.skyGroup, labelManager);
       groundManager = new GroundManager(sceneManager.scene);
       overlayManager = new OverlayManager(sceneManager.skyGroup, controlsManager);
 

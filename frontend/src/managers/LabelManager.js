@@ -1,15 +1,19 @@
 import * as THREE from 'three';
 import { LRUCache } from '@/utils/LRUCache';
+import { API_CONFIG } from '../settings/api.js';
 
 /**
  * LabelManager отвечает за создание и управление текстовыми подписями звезд и планет
  */
 export default class LabelManager {
-    constructor(scene) {
+    constructor(scene, sceneManager = null) {
         // Кэш названий звезд (source_id -> name)
         this.nameCache = new LRUCache(500);
         // Множество текущих запросов для предотвращения дублирования
         this.pendingLookups = new Set();
+        
+        // Ссылка на SceneManager для получения camera up
+        this.sceneManager = sceneManager;
         
         // Создаем группу для лейблов и добавляем в сцену
         this.labelsGroup = new THREE.Group();
@@ -91,7 +95,7 @@ export default class LabelManager {
 
         this.pendingLookups.add(source_id);
         try {
-            const res = await fetch(`/api/star/${source_id}`);
+            const res = await fetch(`${API_CONFIG.STAR_NAMES.baseUrl}/${source_id}`);
             const data = await res.json();
             if (data?.ProperName) {
                 this.nameCache.put(source_id, data.ProperName);
@@ -137,25 +141,6 @@ export default class LabelManager {
         return this.labelsGroup;
     }
 
-    /**
-     * Получает русское название планеты
-     * @param {string} planetName - Английское название планеты
-     * @returns {string} - Русское название планеты
-     */
-    getRussianPlanetName(planetName) {
-        const translations = {
-            'Sun': 'Солнце',
-            'Moon': 'Луна',
-            'Mercury': 'Меркурий',
-            'Venus': 'Венера',
-            'Mars': 'Марс',
-            'Jupiter': 'Юпитер',
-            'Saturn': 'Сатурн',
-            'Uranus': 'Уран',
-            'Neptune': 'Нептун'
-        };
-        return translations[planetName] || planetName;
-    }
 
     /**
      * Создает все лейблы планет сразу
@@ -164,7 +149,7 @@ export default class LabelManager {
         const planetNames = ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune'];
         
         for (const planetName of planetNames) {
-            const displayName = this.getRussianPlanetName(planetName);
+            const displayName = planetName;
             const sprite = this.createTextSprite(displayName, 'rgba(255, 255, 255, 0.9)', 5, 3);
             sprite.visible = false; // Изначально скрыты
             
@@ -178,16 +163,29 @@ export default class LabelManager {
      * @param {string} planetName - Название планеты
      * @param {THREE.Vector3} position - Позиция планеты в 3D пространстве
      * @param {THREE.Camera} camera - Камера для расчета масштаба
+     * @param {number} planetSizePx - Размер планеты в пикселях для смещения лейбла
      */
-    updatePlanetLabel(planetName, position, camera) {
+    updatePlanetLabel(planetName, position, camera, planetSizePx = 0) {
         const sprite = this.planetLabels[planetName];
-        if (!sprite) return;
+        if (!sprite || !this.sceneManager) return;
 
-        // Позиционируем лейбл немного в стороне от планеты
-        const offset = new THREE.Vector3(0, 0, 0);
-        const labelPosition = position.clone().add(offset);
-        sprite.position.copy(labelPosition);
-        sprite.center.set(0, 0.5);
+        // Создаем локальную систему координат
+        // 1. Forward: от камеры к объекту
+        const forward = position.clone().sub(camera.position).normalize();
+        
+        // 2. Up: направление "вверх" относительно камеры
+        const up = this.sceneManager.getCameraUp();
+        
+        // 3. Right: векторное произведение forward × up
+        const right = forward.clone().cross(up).normalize();
+        
+        
+        // Смещение влево на 0.6 * planetSizePx
+        //const offset = right.multiplyScalar(0.6 * planetSizePx * 1); // 0.01 для корректного масштаба в 3D
+        const offset = up.multiplyScalar(0.6 * planetSizePx * 1); // 0.01 для корректного масштаба в 3D
+        // Позиционируем лейбл со смещением влево
+        sprite.position.copy(position).add(offset);
+        sprite.center.set(0.5, 0);
 
         // Применяем масштабирование в зависимости от FOV камеры
         const scalingFactor = camera.fov / 120;
@@ -208,7 +206,7 @@ export default class LabelManager {
     updateAllPlanetLabels(celestialBodies, camera) {
         for (const body of celestialBodies) {
             if (body.name && body.pointPosition) {
-                this.updatePlanetLabel(body.name, body.pointPosition, camera);
+                this.updatePlanetLabel(body.name, body.pointPosition, camera, body.sizePx || 0);
             }
         }
     }

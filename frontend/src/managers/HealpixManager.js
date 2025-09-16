@@ -187,14 +187,14 @@ class TileManager {
 }
 
 export default class HealpixManager {
-    constructor(scene, baseUrl = API_CONFIG.DSS_SURVEYS.baseUrl) {
+    constructor(scene, labelManager, baseUrl = API_CONFIG.DSS_SURVEYS.baseUrl) {
         this.scene = scene;
         this.baseUrl = baseUrl;
         this.managerGroup = scene;
         this.tileManager = new TileManager(this.managerGroup, this.baseUrl);
 
-        // Создаем LabelManager для работы с текстовыми спрайтами
-        this.labelManager = new LabelManager(this.scene);
+        // Используем переданный LabelManager
+        this.labelManager = labelManager;
     }
 
 

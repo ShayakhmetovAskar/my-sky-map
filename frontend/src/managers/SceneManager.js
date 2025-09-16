@@ -86,6 +86,18 @@ export default class SceneManager {
   }
 
   /**
+   * Получает направление "вверх" относительно экрана (камеры)
+   * Не зависит от поворота сцены и времени
+   * @returns {THREE.Vector3} - Нормализованный вектор направления "вверх" на экране
+   */
+  getCameraUp() {
+    const screenUp = new THREE.Vector3(0, 1, 0);
+    const inverseSkyRotation = this.skyGroup.quaternion.clone().invert();
+    screenUp.applyQuaternion(inverseSkyRotation);
+    return screenUp.normalize();
+  }
+
+  /**
    * Запуск анимационного цикла
    * @param {Function} onUpdate - функция, которая будет вызвана на каждом кадре
    *    onUpdate(deltaTime, elapsedTime, scene, camera)

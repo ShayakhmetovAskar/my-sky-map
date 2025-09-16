@@ -35,6 +35,7 @@ import GridManager from '@/managers/GridManager';
 import CelestialManager from '@/managers/CelestialManager';
 import UIManager from '@/managers/UIManager';
 import GroundManager from '@/managers/GroundManager';
+import LabelManager from '@/managers/LabelManager';
 import TimeSelector from '@/components/TimeSelector.vue';
 import TerrainToggleButton from '@/components/TerrainToggleButton.vue';
 import LocationSelector from '@/components/LocationSelector.vue';
@@ -75,6 +76,7 @@ export default {
     let groundManager = null;
     let healpixManager = null;
     let overlayManager = null;
+    let labelManager = null;
 
     const debugList = ref([0, 0, 0, 0]);
 
@@ -124,7 +126,11 @@ export default {
         sceneManager.renderer.domElement
       );
 
-      celestialManager = new CelestialManager(sceneManager.camera, sceneManager.skyGroup);
+      // Инициализируем LabelManager
+      labelManager = new LabelManager(sceneManager.skyGroup);
+
+      // Инициализируем CelestialManager с LabelManager
+      celestialManager = new CelestialManager(sceneManager.camera, sceneManager.skyGroup, labelManager);
       celestialManager.updatePositions(new Date(), observer);
       uiManager = new UIManager(hudRef.value);
       healpixManager = new HealpixManager(sceneManager.skyGroup);

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { LRUCache } from '@/utils/LRUCache';
 
 /**
- * LabelManager отвечает за создание и управление текстовыми подписями звезд
+ * LabelManager отвечает за создание и управление текстовыми подписями звезд и планет
  */
 export default class LabelManager {
     constructor(scene) {
@@ -14,8 +14,18 @@ export default class LabelManager {
         // Создаем группу для лейблов и добавляем в сцену
         this.labelsGroup = new THREE.Group();
         this.labelsGroup.name = 'StarLabels';
+        
+        // Создаем отдельную группу для лейблов планет
+        this.planetLabelsGroup = new THREE.Group();
+        this.planetLabelsGroup.name = 'PlanetLabels';
+        
+        // Создаем лейблы планет сразу
+        this.planetLabels = {};
+        this.createPlanetLabels();
+        
         if (scene) {
             scene.add(this.labelsGroup);
+            scene.add(this.planetLabelsGroup);
         }
     }
 
@@ -125,5 +135,81 @@ export default class LabelManager {
      */
     getLabelsGroup() {
         return this.labelsGroup;
+    }
+
+    /**
+     * Получает русское название планеты
+     * @param {string} planetName - Английское название планеты
+     * @returns {string} - Русское название планеты
+     */
+    getRussianPlanetName(planetName) {
+        const translations = {
+            'Sun': 'Солнце',
+            'Moon': 'Луна',
+            'Mercury': 'Меркурий',
+            'Venus': 'Венера',
+            'Mars': 'Марс',
+            'Jupiter': 'Юпитер',
+            'Saturn': 'Сатурн',
+            'Uranus': 'Уран',
+            'Neptune': 'Нептун'
+        };
+        return translations[planetName] || planetName;
+    }
+
+    /**
+     * Создает все лейблы планет сразу
+     */
+    createPlanetLabels() {
+        const planetNames = ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune'];
+        
+        for (const planetName of planetNames) {
+            const displayName = this.getRussianPlanetName(planetName);
+            const sprite = this.createTextSprite(displayName, 'rgba(255, 255, 255, 0.9)', 5, 3);
+            sprite.visible = false; // Изначально скрыты
+            
+            this.planetLabels[planetName] = sprite;
+            this.planetLabelsGroup.add(sprite);
+        }
+    }
+
+    /**
+     * Обновляет позицию лейбла планеты
+     * @param {string} planetName - Название планеты
+     * @param {THREE.Vector3} position - Позиция планеты в 3D пространстве
+     * @param {THREE.Camera} camera - Камера для расчета масштаба
+     */
+    updatePlanetLabel(planetName, position, camera) {
+        const sprite = this.planetLabels[planetName];
+        if (!sprite) return;
+
+        // Позиционируем лейбл немного в стороне от планеты
+        const offset = new THREE.Vector3(0, 0, 0);
+        const labelPosition = position.clone().add(offset);
+        sprite.position.copy(labelPosition);
+        sprite.center.set(0, 0.5);
+
+        // Применяем масштабирование в зависимости от FOV камеры
+        const scalingFactor = camera.fov / 120;
+        if (!sprite.userData.baseScale) {
+            sprite.userData.baseScale = sprite.scale.clone();
+        }
+        sprite.scale.copy(sprite.userData.baseScale);
+        sprite.scale.multiplyScalar(scalingFactor);
+
+        sprite.visible = true;
+    }
+
+    /**
+     * Обновляет все лейблы планет
+     * @param {Array} celestialBodies - Массив небесных тел
+     * @param {THREE.Camera} camera - Камера
+     */
+    updateAllPlanetLabels(celestialBodies, camera) {
+        for (const body of celestialBodies) {
+            if (body.name && body.pointPosition) {
+                this.updatePlanetLabel(body.name, body.pointPosition, camera);
+            }
+        }
     }
 }

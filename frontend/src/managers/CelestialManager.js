@@ -6,15 +6,18 @@ import { equatorial_to_cartesian } from '@/utils/algos.js';
  * CelestialManager управляет небесными телами:
  * - Хранит экземпляры небесных объектов: Солнце Луна планеты...
  * - Обновляет их координаты на основании даты/времени/наблюдателя
+ * - Управляет лейблами планет
  */
 export default class CelestialManager {
     /**
      * @param {THREE.Camera} camera
      * @param {THREE.Group|THREE.Scene} root
+     * @param {LabelManager} labelManager - Менеджер лейблов (опционально)
      */
-    constructor(camera, root) {
+    constructor(camera, root, labelManager = null) {
         this.root = root;
         this.camera = camera;
+        this.labelManager = labelManager;
 
         this.sun = new Sun(this.root, this.camera);
 
@@ -76,6 +79,19 @@ export default class CelestialManager {
             this.bodies[i].updateTexturePosition();
             this.bodies[i].updateSize();
         }
+
+        // Обновляем лейблы планет, если менеджер лейблов доступен
+        if (this.labelManager) {
+            this.labelManager.updateAllPlanetLabels(this.bodies, this.camera);
+        }
+    }
+
+    /**
+     * Устанавливает менеджер лейблов
+     * @param {LabelManager} labelManager - Менеджер лейблов
+     */
+    setLabelManager(labelManager) {
+        this.labelManager = labelManager;
     }
 
     dispose() {

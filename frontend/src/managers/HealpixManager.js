@@ -215,11 +215,11 @@ export default class HealpixManager {
             order = 3;
         } else if (camera.fov > 3) {
             order = 4;
-        } else if (camera.fov > 1) {
+        } else if (camera.fov > 2) {
             order = 5;
-        } else if (camera.fov > 0.5) {
+        } else if (camera.fov > 1) {
             order = 6;
-        } else if (camera.fov > 0.25) {
+        } else if (camera.fov > 0.75) {
             order = 7;
         } else {
             order = 7;

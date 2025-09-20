@@ -2,6 +2,8 @@ import { LRUCache } from "./LRUCache";
 import * as THREE from 'three';
 import { heal2equatorial, hipspix2healpix, isNorthAdjacent } from '@/utils/healpix.js';
 import { API_CONFIG } from '@/settings/api';
+import hotSettings from '@/settings/hotsettings.js';
+import { createTileBoundsGeometry } from '@/utils/algos.js';
 
 const textureLoader = new THREE.TextureLoader();
 
@@ -210,8 +212,45 @@ export class MeshLoader {
                     : mesh.material.dispose();
             }
         };
+
+        // Подписываемся на изменения флага show_tile_bounds
+        hotSettings.onChange('show_tile_bounds', (flagName, showWireframe) => {
+            this.updateAllMeshWireframes(showWireframe);
+        });
     }
 
+    /**
+     * Обновляет отображение границ для всех существующих мешей
+     * @param {boolean} showBounds - показывать границы или нет
+     */
+    updateAllMeshWireframes(showBounds) {
+        for (const [key, mesh] of this.meshCache) {
+            if (showBounds) {
+                // Добавляем границы если их еще нет
+                if (!mesh.userData.boundsLines) {
+                    const [norder, pix] = key.split('/').map(Number);
+                    const boundsGeometry = createTileBoundsGeometry(norder, pix);
+                    const boundsMaterial = new THREE.LineBasicMaterial({ 
+                        color: 0xffffff,
+                        transparent: true,
+                        opacity: 0.8,
+                        depthTest: false
+                    });
+                    const boundsLines = new THREE.LineLoop(boundsGeometry, boundsMaterial);
+                    mesh.add(boundsLines);
+                    mesh.userData.boundsLines = boundsLines;
+                }
+            } else {
+                // Удаляем границы если они есть
+                if (mesh.userData.boundsLines) {
+                    mesh.remove(mesh.userData.boundsLines);
+                    mesh.userData.boundsLines.geometry.dispose();
+                    mesh.userData.boundsLines.material.dispose();
+                    delete mesh.userData.boundsLines;
+                }
+            }
+        }
+    }
 
     loadTile(norder, pix) {
         const key = this.getKey(norder, pix);
@@ -284,19 +323,34 @@ export class MeshLoader {
         return geometry;
     }
 
+
     createMeshWithTexture(norder, pix) {
         let texture = this.textureLoader.getTexture(norder, pix);
 
         const geometry = this.createTileGeometry(norder, pix);
         const material = new THREE.MeshStandardMaterial({
             map: texture,
-            //wireframe: true,
             side: THREE.DoubleSide, 
             depthTest: false,
             transparent: false,
         });
 
         const mesh = new THREE.Mesh(geometry, material);
+        
+        // Создаем границы тайла если флаг включен
+        if (hotSettings.get('show_tile_bounds')) {
+            const boundsGeometry = createTileBoundsGeometry(norder, pix);
+            const boundsMaterial = new THREE.LineBasicMaterial({ 
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.8,
+                depthTest: false
+            });
+            const boundsLines = new THREE.LineLoop(boundsGeometry, boundsMaterial);
+            mesh.add(boundsLines);
+            mesh.userData.boundsLines = boundsLines;
+        }
+
         this.group.add(mesh);
         this.meshCache.put(this.getKey(norder, pix), mesh);
     }

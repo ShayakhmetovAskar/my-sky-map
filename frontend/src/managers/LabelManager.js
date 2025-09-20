@@ -174,16 +174,16 @@ export default class LabelManager {
         const forward = position.clone().sub(camera.position).normalize();
         
         // 2. Up: направление "вверх" относительно камеры
-        const up = this.sceneManager.getCameraUp();
+        const cameraUp = this.sceneManager.getCameraUp();
         
-        // 3. Right: векторное произведение forward × up
-        const right = forward.clone().cross(up).normalize();
+        // 3. Right: правое направление (кросс-произведение forward × cameraUp)
+        const right = new THREE.Vector3().crossVectors(forward, cameraUp).normalize();
         
+        // 4. Локальный up: вверх относительно взгляда на объект (кросс-произведение right × forward)
+        const localUp = new THREE.Vector3().crossVectors(right, forward).normalize();
         
-        // Смещение влево на 0.6 * planetSizePx
-        //const offset = right.multiplyScalar(0.6 * planetSizePx * 1); // 0.01 для корректного масштаба в 3D
-        const offset = up.multiplyScalar(0.6 * planetSizePx * 1); // 0.01 для корректного масштаба в 3D
-        // Позиционируем лейбл со смещением влево
+        // Смещаем лейбл вверх относительно направления взгляда камеры
+        const offset = localUp.multiplyScalar(0.6 * planetSizePx * 1);
         sprite.position.copy(position).add(offset);
         sprite.center.set(0.5, 0);
 

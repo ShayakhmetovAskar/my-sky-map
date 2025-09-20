@@ -2,6 +2,7 @@ import * as healpix from "@hscmap/healpix";
 import { temperatureColorTable } from "@/utils/temperatureColorTable.js";
 import * as THREE from 'three';
 import Papa from 'papaparse';
+import { heal2equatorial, hipspix2healpix } from '@/utils/healpix.js';
 
 export function equatorial_to_cartesian(ra, dec, radius = 1) {
     const x = radius * -Math.cos(dec) * Math.sin(ra);
@@ -314,4 +315,70 @@ export function bvToColor(bv) {
 
 export function calculateSizePx(fov, windowHeight, radius, distance) {
     return 2 * Math.atan(radius / distance) / (fov / 180 * Math.PI) * windowHeight;
+}
+
+/**
+ * Создает геометрию границ для HEALPix тайла
+ * @param {number} order - порядок HEALPix
+ * @param {number} pix - номер пикселя
+ * @param {number} radius - радиус сферы (по умолчанию 10)
+ * @returns {THREE.BufferGeometry} геометрия линий границ
+ */
+export function createTileBoundsGeometry(order, pix, radius = 10) {
+    const nside = Math.pow(2, order);
+    const vertices = [];
+    const resolution = 20; // Количество точек на каждой стороне
+
+    // Создаем замкнутый контур по периметру тайла
+    // Верхняя граница (u = 0 to 1, v = 1)
+    for (let i = 0; i <= resolution; i++) {
+        const u = i / resolution;
+        const v = 1.0;
+        const { ra, dec } = heal2equatorial(...hipspix2healpix(nside, pix, u, v));
+        const raAdjusted = ra + Math.PI;
+        const x = radius * -Math.cos(dec) * Math.sin(raAdjusted);
+        const y = radius * Math.sin(dec);
+        const z = radius * -Math.cos(dec) * Math.cos(raAdjusted);
+        vertices.push(x, y, z);
+    }
+
+    // Правая граница (u = 1, v = 1 to 0)
+    for (let i = 1; i <= resolution; i++) {
+        const u = 1.0;
+        const v = 1.0 - (i / resolution);
+        const { ra, dec } = heal2equatorial(...hipspix2healpix(nside, pix, u, v));
+        const raAdjusted = ra + Math.PI;
+        const x = radius * -Math.cos(dec) * Math.sin(raAdjusted);
+        const y = radius * Math.sin(dec);
+        const z = radius * -Math.cos(dec) * Math.cos(raAdjusted);
+        vertices.push(x, y, z);
+    }
+
+    // Нижняя граница (u = 1 to 0, v = 0)
+    for (let i = 1; i <= resolution; i++) {
+        const u = 1.0 - (i / resolution);
+        const v = 0.0;
+        const { ra, dec } = heal2equatorial(...hipspix2healpix(nside, pix, u, v));
+        const raAdjusted = ra + Math.PI;
+        const x = radius * -Math.cos(dec) * Math.sin(raAdjusted);
+        const y = radius * Math.sin(dec);
+        const z = radius * -Math.cos(dec) * Math.cos(raAdjusted);
+        vertices.push(x, y, z);
+    }
+
+    // Левая граница (u = 0, v = 0 to 1)
+    for (let i = 1; i < resolution; i++) {
+        const u = 0.0;
+        const v = i / resolution;
+        const { ra, dec } = heal2equatorial(...hipspix2healpix(nside, pix, u, v));
+        const raAdjusted = ra + Math.PI;
+        const x = radius * -Math.cos(dec) * Math.sin(raAdjusted);
+        const y = radius * Math.sin(dec);
+        const z = radius * -Math.cos(dec) * Math.cos(raAdjusted);
+        vertices.push(x, y, z);
+    }
+
+    const boundsGeometry = new THREE.BufferGeometry();
+    boundsGeometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    return boundsGeometry;
 }

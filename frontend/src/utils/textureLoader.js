@@ -32,18 +32,34 @@ class TextureLoader {
 
 
         for (let i = 0; i < 12; i++) {
-            const texture = textureLoader.load(`/Norder0/Npix${i}.jpg`);
-            // Улучшенные настройки текстуры
-            texture.colorSpace = THREE.SRGBColorSpace; // Правильное цветовое пространство
-            texture.minFilter = THREE.LinearMipmapLinearFilter; // Сглаживание при уменьшении
-            texture.magFilter = THREE.LinearFilter; // Сглаживание при увеличении
-            texture.wrapS = THREE.ClampToEdgeWrapping; // Предотвращаем повторение
+            const texture = textureLoader.load(
+                `/Norder0/Npix${i}.jpg`,
+                // onLoad callback
+                (loadedTexture) => {
+                    // Настройки применяются только после загрузки
+                    loadedTexture.colorSpace = THREE.SRGBColorSpace;
+                    loadedTexture.minFilter = THREE.LinearMipmapLinearFilter;
+                    loadedTexture.magFilter = THREE.LinearFilter;
+                    loadedTexture.wrapS = THREE.ClampToEdgeWrapping;
+                    loadedTexture.wrapT = THREE.ClampToEdgeWrapping;
+                    loadedTexture.generateMipmaps = true;
+                    // Обновляем только после полной загрузки
+                    loadedTexture.needsUpdate = true;
+                },
+                // onProgress callback
+                undefined,
+                // onError callback
+                (error) => {
+                    console.error(`Failed to load root texture Npix${i}.jpg:`, error);
+                }
+            );
+            
+            // Базовые настройки для немедленного использования
+            texture.colorSpace = THREE.SRGBColorSpace;
+            texture.minFilter = THREE.LinearMipmapLinearFilter;
+            texture.magFilter = THREE.LinearFilter;
+            texture.wrapS = THREE.ClampToEdgeWrapping;
             texture.wrapT = THREE.ClampToEdgeWrapping;
-            texture.generateMipmaps = true; // Генерируем мипмапы для лучшего качества
-            //texture.flipY = false; // Отключаем переворот по Y, если нужно
-
-            // Принудительно обновляем текстуру
-            texture.needsUpdate = true;
 
             this.rootTextures.push(texture);
         }
@@ -57,7 +73,7 @@ class TextureLoader {
 
     // Изменение функции getUrl для формирования нового URL картинок
     getUrl(norder, pix) {
-        return `http://storage.yandexcloud.net/skymap-static-data/dss/v1/Norder${norder}/Npix${pix}.jpg`;
+        return `${this.baseUrl}/Norder${norder}/Npix${pix}.jpg`;
     }
 
     /**
@@ -173,17 +189,21 @@ class TextureLoader {
 
             // onLoad callback
             (texture) => {
-                texture.colorSpace = THREE.SRGBColorSpace; // Правильное цветовое пространство
-                texture.minFilter = THREE.LinearMipmapLinearFilter; // Сглаживание при уменьшении
-                texture.magFilter = THREE.LinearFilter; // Сглаживание при увеличении
-                texture.wrapS = THREE.ClampToEdgeWrapping; // Предотвращаем повторение
-                texture.wrapT = THREE.ClampToEdgeWrapping;
-                texture.generateMipmaps = true; // Генерируем мипмапы для лучшего качества
-                //texture.flipY = false; // Отключаем переворот по Y, если нужно
-
-                // Принудительно обновляем текстуру
-                texture.needsUpdate = true;
-                this.textureCacheMain.put(this.getKey(norder, pix), texture);
+                // Проверяем, что изображение действительно загружено
+                if (texture.image && texture.image.complete) {
+                    texture.colorSpace = THREE.SRGBColorSpace;
+                    texture.minFilter = THREE.LinearMipmapLinearFilter;
+                    texture.magFilter = THREE.LinearFilter;
+                    texture.wrapS = THREE.ClampToEdgeWrapping;
+                    texture.wrapT = THREE.ClampToEdgeWrapping;
+                    texture.generateMipmaps = true;
+                    
+                    // Обновляем текстуру только после полной загрузки изображения
+                    texture.needsUpdate = true;
+                    this.textureCacheMain.put(this.getKey(norder, pix), texture);
+                } else {
+                    console.warn(`Texture loaded but image data not complete for ${url}`);
+                }
                 this.currentCount--;
             },
 

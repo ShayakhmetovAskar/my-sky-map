@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { prepareStarsGeometryNew } from "./algos";
 import { createStarMaterial } from '@/utils/starShader.js';
 import { API_CONFIG } from '@/settings/api';
+import APP_SETTINGS from '@/settings/appSettings';
 
 export class StarsMeshLoader {
     constructor(group) {
@@ -120,6 +121,11 @@ export class JsonLoader {
     }
 
     load(norder, pix) {
+        // Проверяем максимальный order для звездных данных
+        if (norder > APP_SETTINGS.STARS_MAX_ORDER) {
+            return; // Не загружаем данные выше максимального order
+        }
+        
         const url = this.getUrl(norder, pix);
         const key = this.getKey(norder, pix);
 

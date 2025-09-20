@@ -2,6 +2,7 @@ import { LRUCache } from "./LRUCache";
 import * as THREE from 'three';
 import { heal2equatorial, hipspix2healpix, isNorthAdjacent } from '@/utils/healpix.js';
 import { API_CONFIG } from '@/settings/api';
+import APP_SETTINGS from '@/settings/appSettings';
 import debugSettings from '@/settings/debugSettings.js';
 import { createTileBoundsGeometry } from '@/utils/algos.js';
 
@@ -144,6 +145,11 @@ class TextureLoader {
 
 
     load(norder, pix) {
+        // Проверяем максимальный order для DSS изображений
+        if (norder > APP_SETTINGS.DSS_MAX_ORDER) {
+            return; // Не загружаем изображения выше максимального order
+        }
+        
         const url = this.getUrl(norder, pix);
         if (this.currentCount >= this.maxConcurrent) {
             return;

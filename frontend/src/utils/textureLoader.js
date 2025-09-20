@@ -2,7 +2,7 @@ import { LRUCache } from "./LRUCache";
 import * as THREE from 'three';
 import { heal2equatorial, hipspix2healpix, isNorthAdjacent } from '@/utils/healpix.js';
 import { API_CONFIG } from '@/settings/api';
-import hotSettings from '@/settings/hotsettings.js';
+import debugSettings from '@/settings/debugSettings.js';
 import { createTileBoundsGeometry } from '@/utils/algos.js';
 
 const textureLoader = new THREE.TextureLoader();
@@ -213,9 +213,11 @@ export class MeshLoader {
             }
         };
 
-        // Подписываемся на изменения флага show_tile_bounds
-        hotSettings.onChange('show_tile_bounds', (flagName, showWireframe) => {
-            this.updateAllMeshWireframes(showWireframe);
+        // Подписываемся на изменения настроек debug
+        window.addEventListener('debug-settings-changed', (event) => {
+            if (event.detail.showTileBounds !== undefined) {
+                this.updateAllMeshWireframes(event.detail.showTileBounds);
+            }
         });
     }
 
@@ -338,7 +340,7 @@ export class MeshLoader {
         const mesh = new THREE.Mesh(geometry, material);
         
         // Создаем границы тайла если флаг включен
-        if (hotSettings.get('show_tile_bounds')) {
+        if (debugSettings.get('showTileBounds')) {
             const boundsGeometry = createTileBoundsGeometry(norder, pix);
             const boundsMaterial = new THREE.LineBasicMaterial({ 
                 color: 0xffffff,
@@ -360,5 +362,3 @@ export class MeshLoader {
         return `${norder}/${pix}`;
     }
 }
-
-

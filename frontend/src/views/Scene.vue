@@ -10,7 +10,6 @@
     <div class="button-row">
       <LocationSelector ref="locationSelectorRef" @location-changed="onLocationChanged" />
       <TerrainToggleButton @toggle-terrain="onTerrainToggle" />
-      <HotSettingsButton @toggle-menu="toggleHotSettingsMenu" :isMenuOpen="isHotSettingsMenuOpen" />
     </div>
 
     <div v-if="taskId" class="transparency-slider-container">
@@ -23,11 +22,8 @@
     </div>
   </div>
 
-  <!-- Hot Settings Menu -->
-  <HotSettingsMenu 
-    :isVisible="isHotSettingsMenuOpen" 
-    @close="closeHotSettingsMenu" 
-  />
+  <!-- Debug Panel -->
+  <DebugPanel />
 
 </template>
 
@@ -45,8 +41,7 @@ import GraphicsDebugManager from '@/managers/GraphicsDebugManager';
 import TimeSelector from '@/components/TimeSelector.vue';
 import TerrainToggleButton from '@/components/TerrainToggleButton.vue';
 import LocationSelector from '@/components/LocationSelector.vue';
-import HotSettingsButton from '@/components/HotSettingsButton.vue';
-import HotSettingsMenu from '@/components/HotSettingsMenu.vue';
+import DebugPanel from '@/components/DebugPanel.vue';
 import HealpixManager from '@/managers/HealpixManager';
 import OverlayManager from '@/managers/OverlayManager';
 import { getWorldUp } from '@/utils/algos';
@@ -60,8 +55,7 @@ export default {
     TimeSelector,
     LocationSelector,
     TerrainToggleButton,
-    HotSettingsButton,
-    HotSettingsMenu,
+    DebugPanel,
   },
   props: {
     taskId: {
@@ -76,7 +70,6 @@ export default {
     const locationSelectorRef = ref(null);
     const terrainToggleButton = ref(null);
     const overlayOpacity = ref(1);
-    const isHotSettingsMenuOpen = ref(false);
 
     let sceneManager = null;
     let updateStarsInterval = null;
@@ -126,14 +119,6 @@ export default {
       if (overlayManager) {
         overlayManager.setOverlaysOpacity(overlayOpacity.value);
       }
-    };
-
-    const toggleHotSettingsMenu = () => {
-      isHotSettingsMenuOpen.value = !isHotSettingsMenuOpen.value;
-    };
-
-    const closeHotSettingsMenu = () => {
-      isHotSettingsMenuOpen.value = false;
     };
 
     onMounted(() => {
@@ -256,9 +241,6 @@ export default {
       updateOverlayOpacity,
       overlayOpacity,
       onTimeSelectorReady,
-      isHotSettingsMenuOpen,
-      toggleHotSettingsMenu,
-      closeHotSettingsMenu,
     };
   }
 };

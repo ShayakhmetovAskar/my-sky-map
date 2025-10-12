@@ -45,7 +45,6 @@ import TerrainToggleButton from '@/components/TerrainToggleButton.vue';
 import LocationSelector from '@/components/LocationSelector.vue';
 import DebugPanel from '@/components/DebugPanel.vue';
 import TrackButton from '@/components/TrackButton.vue';
-import ObjectInfoPanel from '@/components/ObjectInfoPanel.vue';
 import HealpixManager from '@/managers/HealpixManager';
 import OverlayManager from '@/managers/OverlayManager';
 import { getWorldUp, equatorial_to_cartesian, cartesian_to_equatorial } from '@/utils/algos';
@@ -60,8 +59,7 @@ export default {
     LocationSelector,
     TerrainToggleButton,
     DebugPanel,
-    TrackButton,
-    ObjectInfoPanel,
+    TrackButton
   },
   props: {
     taskId: {
@@ -257,7 +255,7 @@ export default {
           isTracking.value = false;
           console.log('✅ Tracking disabled');
         },
-        
+
       };
     });
 

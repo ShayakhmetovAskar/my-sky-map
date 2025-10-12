@@ -10,6 +10,7 @@
     <div class="button-row">
       <LocationSelector ref="locationSelectorRef" @location-changed="onLocationChanged" />
       <TerrainToggleButton @toggle-terrain="onTerrainToggle" />
+      <TrackButton :is-tracking="isTracking" @toggle-tracking="onToggleTracking" />
     </div>
 
     <div v-if="taskId" class="transparency-slider-container">
@@ -24,6 +25,7 @@
 
   <!-- Debug Panel -->
   <DebugPanel />
+
 
 </template>
 
@@ -42,9 +44,11 @@ import TimeSelector from '@/components/TimeSelector.vue';
 import TerrainToggleButton from '@/components/TerrainToggleButton.vue';
 import LocationSelector from '@/components/LocationSelector.vue';
 import DebugPanel from '@/components/DebugPanel.vue';
+import TrackButton from '@/components/TrackButton.vue';
+import ObjectInfoPanel from '@/components/ObjectInfoPanel.vue';
 import HealpixManager from '@/managers/HealpixManager';
 import OverlayManager from '@/managers/OverlayManager';
-import { getWorldUp } from '@/utils/algos';
+import { getWorldUp, equatorial_to_cartesian, cartesian_to_equatorial } from '@/utils/algos';
 
 
 
@@ -56,6 +60,8 @@ export default {
     LocationSelector,
     TerrainToggleButton,
     DebugPanel,
+    TrackButton,
+    ObjectInfoPanel,
   },
   props: {
     taskId: {
@@ -70,6 +76,12 @@ export default {
     const locationSelectorRef = ref(null);
     const terrainToggleButton = ref(null);
     const overlayOpacity = ref(1);
+    const isTracking = ref(false);
+    
+    // Состояние для ObjectInfoPanel
+    const selectedObject = ref(null);
+    const isObjectPanelVisible = ref(false);
+    const isObjectTracking = ref(false);
 
     let sceneManager = null;
     let updateStarsInterval = null;
@@ -121,6 +133,22 @@ export default {
       }
     };
 
+    const onToggleTracking = () => {
+
+      isTracking.value = !isTracking.value;
+      
+      if (isTracking.value) {
+        const coordinates = controlsManager.getCurrentCameraViewCoordinates();
+        
+        if (coordinates) {
+          const currentViewTarget = { ra: coordinates.ra_deg, dec: coordinates.dec_deg };
+          controlsManager.lockTarget(currentViewTarget);
+        }
+      } else {
+        controlsManager.unlockTarget();
+      }
+    };
+
     onMounted(() => {
       sceneManager = new SceneManager(threeContainer.value);
       sceneManager.rotateSky(observer.longitude, observer.latitude, new Date());
@@ -128,18 +156,19 @@ export default {
       gridManager = new GridManager(sceneManager.skyGroup);
       controlsManager = new ControlsManager(
         sceneManager.camera,
-        sceneManager.renderer.domElement
+        sceneManager.renderer.domElement,
+        sceneManager.skyGroup
       );
 
-      // Инициализируем LabelManager с передачей sceneManager
       labelManager = new LabelManager(sceneManager.skyGroup, sceneManager);
 
-      // Инициализируем GraphicsDebugManager для отладки
-      debugManager = new GraphicsDebugManager(sceneManager.skyGroup);
+      //debugManager = new GraphicsDebugManager(sceneManager.skyGroup);
 
       // Инициализируем CelestialManager с LabelManager
       celestialManager = new CelestialManager(sceneManager.camera, sceneManager.skyGroup, labelManager);
       celestialManager.updatePositions(new Date(), observer);
+      
+      // Инициализируем UIManager
       uiManager = new UIManager(hudRef.value);
       healpixManager = new HealpixManager(sceneManager.skyGroup, labelManager);
       groundManager = new GroundManager(sceneManager.scene);
@@ -154,21 +183,49 @@ export default {
 
 
       sceneManager.startAnimationLoop((deltaTime, elapsedTime, scene, camera) => {
+
+        if (timeSelectorRef.value) {
+          const smoothTime = timeSelectorRef.value.getSmoothTime(deltaTime);
+          
+          const trackingInfo = controlsManager.getTrackingInfo();
+          const shouldFreezeSky = trackingInfo.mode !== null && controlsManager.userIsInteracting;
+          
+          if (!shouldFreezeSky) {
+            sceneManager.rotateSky(observer.longitude, observer.latitude, smoothTime);
+          }
+        }
+        
+        // Чистое обновление: ControlsManager сам управляет трекингом
         controlsManager.update();
         celestialManager.update(sceneManager.getUp());
 
-        // Получаем плавное время из TimeSelector
-        if (timeSelectorRef.value) {
-          const smoothTime = timeSelectorRef.value.getSmoothTime(deltaTime);
-          sceneManager.rotateSky(observer.longitude, observer.latitude, smoothTime);
+        // Получаем координаты направления взгляда камеры
+        const coordinates = controlsManager.getCurrentCameraViewCoordinates();
+        
+        if (coordinates) {
+          const trackingInfo = controlsManager.getTrackingInfo();
+          let trackingText = '';
+          
+          if (trackingInfo.mode === 'celestial') {
+            const offsetText = trackingInfo.offset
+              ? `\noffset: RA${trackingInfo.offset.ra >= 0 ? '+' : ''}${trackingInfo.offset.ra.toFixed(5)}° DEC${trackingInfo.offset.dec >= 0 ? '+' : ''}${trackingInfo.offset.dec.toFixed(5)}°`
+              : '';
+            const frozenText = controlsManager.userIsInteracting ? ' [stop rotation]' : '';
+            trackingText = `\ntracking: ${trackingInfo.celestialObject}${offsetText}${frozenText}`;
+          } else if (trackingInfo.mode === 'fixed') {
+            const frozenText = controlsManager.userIsInteracting ? ' [stop rotation]' : '';
+            trackingText = `\ntracking: fixed position ${frozenText}`;
+          }
+            
+          const text =
+            `tiles_loaded: ` + healpixManager.tileManager.currentTiles.length + `\n` +
+            `fov: ${camera.fov.toFixed(2)}` + `\n` +
+            `camera_ra: ${coordinates.ra_deg.toFixed(2)}°` + `\n` +
+            `camera_dec: ${coordinates.dec_deg.toFixed(2)}°` + trackingText;
+          uiManager.updateHUD(text);
         }
-
-        const text =
-          `tiles_loaded: ` + healpixManager.tileManager.currentTiles.length + `\n` +
-          `fov: ${camera.fov.toFixed(2)}`;
-        uiManager.updateHUD(text);
+        
         healpixManager.setOrder(sceneManager.camera);
-
       });
 
 
@@ -182,6 +239,25 @@ export default {
         updateXYZ: (newX, newY, newZ) => {
           controlsManager.camera.position.set(-newX, -newY, -newZ);
         },
+        track: (objectName) => {
+          if (!controlsManager || !celestialManager) {
+            console.error('❌ Managers not initialized');
+            return;
+          }
+          controlsManager.trackCelestialObject(celestialManager, objectName);
+          isTracking.value = true;
+          console.log('✅ Tracking:', objectName);
+        },
+        untrack: () => {
+          if (!controlsManager) {
+            console.error('❌ ControlsManager not initialized');
+            return;
+          }
+          controlsManager.unlockTarget();
+          isTracking.value = false;
+          console.log('✅ Tracking disabled');
+        },
+        
       };
     });
 
@@ -241,6 +317,8 @@ export default {
       updateOverlayOpacity,
       overlayOpacity,
       onTimeSelectorReady,
+      isTracking,
+      onToggleTracking,
     };
   }
 };

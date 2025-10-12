@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 class GroundManager {
-    constructor(scene, radius = 10, color = 0x003300, opacity = 1) {
+    constructor(scene, radius = 10, color = 0x001001, opacity = 1) {
         this.scene = scene;
         this.radius = radius;
         this.color = color;

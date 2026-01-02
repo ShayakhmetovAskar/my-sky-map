@@ -59,7 +59,7 @@ export default {
     LocationSelector,
     TerrainToggleButton,
     DebugPanel,
-    TrackButton
+    TrackButton,
   },
   props: {
     taskId: {
@@ -75,11 +75,6 @@ export default {
     const terrainToggleButton = ref(null);
     const overlayOpacity = ref(1);
     const isTracking = ref(false);
-    
-    // Состояние для ObjectInfoPanel
-    const selectedObject = ref(null);
-    const isObjectPanelVisible = ref(false);
-    const isObjectTracking = ref(false);
 
     let sceneManager = null;
     let updateStarsInterval = null;
@@ -159,6 +154,32 @@ export default {
       );
 
       labelManager = new LabelManager(sceneManager.skyGroup, sceneManager);
+
+      // Добавляем обработчик кликов по лейблам
+      sceneManager.renderer.domElement.addEventListener('click', (event) => {
+        const clickedLabels = labelManager.checkLabelClick(
+          event,
+          sceneManager.camera,
+          sceneManager.renderer.domElement
+        );
+
+        console.log(clickedLabels);
+        return;
+        
+        if (clickedLabels.length > 0) {
+          console.log('🏷️ Clicked labels:');
+          clickedLabels.forEach((label, index) => {
+            if (label.type === 'planet') {
+              console.log(`  ${index + 1}. 🪐 Planet: ${label.name}`);
+            } else if (label.type === 'star') {
+              const starName = label.sprite.userData?.name || 'Unknown';
+              const magnitude = label.sprite.userData?.magnitude;
+              const sourceId = label.sprite.userData?.source_id;
+              console.log(`  ${index + 1}. ⭐ Star: ${starName}${magnitude ? ` (mag: ${magnitude.toFixed(2)})` : ''}${sourceId ? ` [${sourceId}]` : ''}`);
+            }
+          });
+        }
+      });
 
       //debugManager = new GraphicsDebugManager(sceneManager.skyGroup);
 

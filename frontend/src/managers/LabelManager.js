@@ -6,14 +6,40 @@ import { API_CONFIG } from '../settings/api.js';
  * LabelManager отвечает за создание и управление текстовыми подписями звезд и планет
  */
 export default class LabelManager {
-    constructor(scene, sceneManager = null) {
+    constructor(scene, sceneManager = null, options = {}) {
         // Кэш названий звезд (source_id -> name)
         this.nameCache = new LRUCache(500);
+        
+        // Кэш спрайтов звезд с освобождением ресурсов при вытеснении
+        this.starSpriteCache = new LRUCache(50, (key, sprite) => {
+            // Освобождаем ресурсы THREE.js при удалении из кэша
+            if (sprite.material?.map) {
+                sprite.material.map.dispose();
+            }
+            if (sprite.material) {
+                sprite.material.dispose();
+            }
+            if (sprite.geometry) {
+                sprite.geometry.dispose();
+            }
+        });
+        
         // Множество текущих запросов для предотвращения дублирования
         this.pendingLookups = new Set();
         
         // Ссылка на SceneManager для получения camera up
         this.sceneManager = sceneManager;
+   
+        this.fontFamily = options.fontFamily || `'Courier New', 'Courier', monospace`;
+        this.fontWeight = options.fontWeight || '100';
+        
+        this.fontSize = options.fontSize || 4;
+        
+        this.scaleFactor = options.scaleFactor || 3;
+        
+        this.dpiScale = options.dpiScale || 2;
+        
+        this.defaultColor = options.defaultColor || 'rgba(255, 255, 255, 0.9)';
         
         // Создаем группу для лейблов и добавляем в сцену
         this.labelsGroup = new THREE.Group();
@@ -36,27 +62,34 @@ export default class LabelManager {
     /**
      * Создает текстовый спрайт из строки (минималистичный стиль)
      * @param {string} text - Текст для отображения
-     * @param {string} color - Цвет текста (по умолчанию 'white')
-     * @param {number} fontSize - Размер шрифта (по умолчанию 5)
-     * @param {number} scaleFactor - Фактор масштабирования (по умолчанию 3)
+     * @param {string} color - Цвет текста (использует this.defaultColor если не указан)
+     * @param {number} fontSize - Размер шрифта (использует this.fontSize если не указан)
+     * @param {number} scaleFactor - Фактор масштабирования (использует this.scaleFactor если не указан)
      * @returns {THREE.Sprite} - Созданный спрайт
      */
-    createTextSprite(text, color = 'rgba(255, 255, 255, 0.9)', fontSize = 5, scaleFactor = 3) {
+    createTextSprite(text, color = null, fontSize = null, scaleFactor = null) {
+        
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');
         
-        const largeFontSize = fontSize * scaleFactor;
-        context.font = `300 ${largeFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
+        // Используем настройки из конструктора, если параметры не переданы
+        const actualColor = color || this.defaultColor;
+        const actualFontSize = fontSize || this.fontSize;
+        const actualScaleFactor = scaleFactor || this.scaleFactor;
+        const dpiScale = this.dpiScale;
+        
+        const largeFontSize = actualFontSize * actualScaleFactor * dpiScale;
+        context.font = `${this.fontWeight} ${largeFontSize}px ${this.fontFamily}`;
         
         const textWidth = context.measureText(text).width;
-        const padding = 4 * scaleFactor; // Минимальные отступы
+        const padding = 4 * actualScaleFactor * dpiScale; // Минимальные отступы
         
         canvas.width = textWidth + padding;
         canvas.height = largeFontSize + padding;
         
-        // Чистый минималистичный текст с тонким шрифтом
-        context.font = `200 ${largeFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
-        context.fillStyle = color;
+        // Чистый минималистичный текст
+        context.font = `${this.fontWeight} ${largeFontSize}px ${this.fontFamily}`;
+        context.fillStyle = actualColor;
         context.textAlign = 'left';
         context.textBaseline = 'top';
         context.fillText(text, padding / 2, padding / 2);
@@ -65,13 +98,14 @@ export default class LabelManager {
         texture.needsUpdate = true;
         
         const spriteMaterial = new THREE.SpriteMaterial({ 
-            map: texture, 
+            map: texture,
             transparent: true,
-            depthTest: false 
+            depthTest: false,
         });
         
         const sprite = new THREE.Sprite(spriteMaterial);
-        const spriteScale = 1 / scaleFactor;
+        // Компенсируем увеличение разрешения canvas уменьшением масштаба спрайта
+        const spriteScale = 1 / (actualScaleFactor * dpiScale);
         sprite.scale.set(
             (textWidth + padding) / 10 * spriteScale, 
             (largeFontSize + padding) / 10 * spriteScale, 
@@ -79,6 +113,18 @@ export default class LabelManager {
         );
 
         return sprite;
+    }
+
+    /**
+     * Очищает лишние пробелы в названии звезды (2 и более пробелов заменяются на 1)
+     * @param {string} name - Исходное название звезды
+     * @returns {string} - Очищенное название
+     */
+    cleanStarName(name) {
+        if (typeof name !== 'string') return name;
+        
+        // Заменяем 2 и более пробелов подряд на один пробел
+        return name.replace(/\s{2,}/g, ' ');
     }
 
     /**
@@ -98,7 +144,9 @@ export default class LabelManager {
             const res = await fetch(`${API_CONFIG.STAR_NAMES.baseUrl}/${source_id}`);
             const data = await res.json();
             if (data?.ProperName) {
-                this.nameCache.put(source_id, data.ProperName);
+                // Очищаем лишние пробелы перед сохранением в кэш
+                const cleanedName = this.cleanStarName(data.ProperName);
+                this.nameCache.put(source_id, cleanedName);
             } else {
                 this.nameCache.put(source_id, null);
             }
@@ -150,7 +198,8 @@ export default class LabelManager {
         
         for (const planetName of planetNames) {
             const displayName = planetName;
-            const sprite = this.createTextSprite(displayName, 'rgba(255, 255, 255, 0.9)', 5, 3);
+            // Используем настройки по умолчанию из конструктора
+            const sprite = this.createTextSprite(displayName);
             sprite.visible = false; // Изначально скрыты
             
             this.planetLabels[planetName] = sprite;
@@ -209,5 +258,149 @@ export default class LabelManager {
                 this.updatePlanetLabel(body.name, body.pointPosition, camera, body.sizePx || 0);
             }
         }
+    }
+
+    /**
+     * Умное обновление лейблов звезд с переиспользованием спрайтов
+     * @param {Array} starsToShow - Массив звезд для отображения
+     * @param {THREE.Camera} camera - Камера для расчета масштаба
+     */
+    updateStarLabels(starsToShow, camera) {
+        const requiredLabels = new Set();
+        const labelsToAdd = [];
+        const scalingFactor = camera.fov / 120;
+        
+        // 1. Проходим по звездам и определяем какие лейблы нужны
+        for (const star of starsToShow) {
+            // Получаем имя звезды из кэша
+            let name = this.getStarName(star.source_id);
+            
+            if (name === undefined) {
+                // Имя еще не загружено, запускаем загрузку в фоне и пропускаем
+                this.fetchAndCacheStarName(star.source_id);
+                continue;
+            }
+            
+            // Если имя null (звезда без названия), используем магнитуду
+            const displayText = name || star.phot_g_mean_mag.toFixed(2);
+            
+            // Пытаемся получить спрайт из кэша
+            let sprite = this.starSpriteCache.get(star.source_id);
+            
+            if (!sprite) {
+                // Создаем новый спрайт и добавляем в кэш
+                sprite = this.createTextSprite(displayText);
+                this.starSpriteCache.put(star.source_id, sprite);
+            }
+            
+            // Обновляем позицию и масштаб спрайта
+            if (star.position) {
+                sprite.position.copy(new THREE.Vector3(...star.position));
+            } else if (star.x !== undefined && star.y !== undefined && star.z !== undefined) {
+                sprite.position.set(star.x, star.y, star.z);
+            }
+            
+            sprite.center.set(0, 0.5);
+            
+            // Сохраняем базовый масштаб при первом использовании
+            if (!sprite.userData.baseScale) {
+                sprite.userData.baseScale = sprite.scale.clone();
+            }
+            
+            // Применяем масштабирование относительно FOV
+            sprite.scale.copy(sprite.userData.baseScale);
+            sprite.scale.multiplyScalar(scalingFactor);
+            
+            // Обновляем userData для обработки кликов
+            sprite.userData.name = displayText;
+            sprite.userData.source_id = star.source_id;
+            sprite.userData.magnitude = star.phot_g_mean_mag;
+            
+            sprite.visible = true;
+            requiredLabels.add(sprite);
+            
+            // Если спрайта еще нет в группе - помечаем для добавления
+            if (!this.labelsGroup.children.includes(sprite)) {
+                labelsToAdd.push(sprite);
+            }
+        }
+        
+        // 2. Удаляем лейблы, которые больше не нужны
+        const toRemove = [];
+        for (const child of this.labelsGroup.children) {
+            if (!requiredLabels.has(child)) {
+                toRemove.push(child);
+            }
+        }
+        
+        // Фактическое удаление
+        for (const sprite of toRemove) {
+            this.labelsGroup.remove(sprite);
+        }
+        
+        // 3. Добавляем новые лейблы
+        for (const sprite of labelsToAdd) {
+            this.labelsGroup.add(sprite);
+        }
+    }
+
+    /**
+     * Проверяет клик по лейблам
+     * @param {MouseEvent} event - Событие клика мыши
+     * @param {THREE.Camera} camera - Камера
+     * @param {HTMLElement} domElement - DOM элемент canvas
+     * @returns {Array} - Массив кликнутых лейблов с информацией
+     */
+    checkLabelClick(event, camera, domElement) {
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        // Конвертируем координаты мыши в нормализованные координаты (-1 to +1)
+        const rect = domElement.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        // Создаем луч от камеры через позицию мыши
+        raycaster.setFromCamera(mouse, camera);
+
+        const clickedLabels = [];
+
+        // Проверяем лейблы планет
+        for (const planetName in this.planetLabels) {
+            const sprite = this.planetLabels[planetName];
+            if (sprite.visible) {
+                const intersects = raycaster.intersectObject(sprite, false);
+                if (intersects.length > 0) {
+                    clickedLabels.push({
+                        type: 'planet',
+                        name: planetName,
+                        sprite: sprite,
+                        distance: intersects[0].distance
+                    });
+                }
+            }
+        }
+
+        // Проверяем лейблы звезд (из labelsGroup)
+        const starLabels = this.labelsGroup.children;
+        for (let i = 0; i < starLabels.length; i++) {
+            const sprite = starLabels[i];
+            if (sprite.visible) {
+                const intersects = raycaster.intersectObject(sprite, false);
+                if (intersects.length > 0) {
+                    clickedLabels.push({
+                        type: 'star',
+                        name: sprite.userData?.name || `star_${i}`,
+                        sprite: sprite,
+                        distance: intersects[0].distance
+                    });
+                }
+            }
+        }
+
+        // Сортируем по расстоянию (ближайшие первыми)
+        clickedLabels.sort((a, b) => a.distance - b.distance);
+
+        return clickedLabels;
     }
 }

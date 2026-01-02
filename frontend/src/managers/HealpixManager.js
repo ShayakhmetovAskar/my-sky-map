@@ -226,32 +226,8 @@ export default class HealpixManager {
         }
         await this.tileManager.setOrder(order, camera);
 
-
-
+        // Используем новый умный метод обновления лейблов
         const brightestStars = this.tileManager.brightestStars || [];
-
-        // Очищаем старые метки
-        this.labelManager.clearLabels();
-
-        const scalingFactor = camera.fov / 120;
-
-        for (const star of this.tileManager.brightestStars || []) {
-            let name = this.labelManager.getStarName(star.source_id);
-
-            if (name === undefined) {
-                this.labelManager.fetchAndCacheStarName(star.source_id); // Запускаем в фоне
-                continue; // Не отрисовываем
-            }
-
-            if (!name) {
-                name = star.phot_g_mean_mag.toString();
-            }
-
-            const sprite = this.labelManager.createTextSprite(name);
-            sprite.position.copy(new THREE.Vector3(...star.position));
-            sprite.center.set(0, 0.5);
-            sprite.scale.multiplyScalar(scalingFactor);
-            this.labelManager.addLabel(sprite);
-        }
+        this.labelManager.updateStarLabels(brightestStars, camera);
     }
 }

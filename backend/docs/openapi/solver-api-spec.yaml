@@ -1,0 +1,253 @@
+openapi: 3.0.3
+info:
+  title: Plate Solver Service
+  description: Plate solving service.
+  version: 1.0.0
+servers:
+  - url: /api/v1
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ==============================================================================
+  # SUBMISSIONS
+  # ==============================================================================
+  /submissions:
+    post:
+      tags: [Submissions]
+      summary: Create submission and get presigned upload URL
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSubmissionRequest'
+      responses:
+        '201':
+          description: Submission created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionCreatedResponse'
+
+    get:
+      tags: [Submissions]
+      summary: List user submissions
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of items to return
+          schema: { type: integer, default: 20 }
+        - name: offset
+          in: query
+          description: Number of items to skip
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: List of submissions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/SubmissionSummary' }
+                  total: { type: integer }
+
+  /submissions/{submission_id}:
+    parameters:
+      - name: submission_id
+        in: path
+        description: Submission identifier
+        schema: { type: string, format: uuid }
+        required: true
+    get:
+      tags: [Submissions]
+      summary: Get submission details
+      responses:
+        '200':
+          description: Submission details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubmissionDetailed' }
+        '404':
+          description: Not found or no access
+
+    delete:
+      tags: [Submissions]
+      summary: Delete submission and all tasks
+      responses:
+        '204': { description: Deleted }
+
+  # ==============================================================================
+  # TASKS
+  # ==============================================================================
+  /tasks:
+    post:
+      tags: [Tasks]
+      summary: Create processing task
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+      responses:
+        '201':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskSummary'
+
+    get:
+      tags: [Tasks]
+      summary: List user tasks
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of items to return
+          schema: { type: integer, default: 20 }
+        - name: offset
+          in: query
+          description: Number of items to skip
+          schema: { type: integer, default: 0 }
+        - name: submission_id
+          in: query
+          description: Filter by submission ID
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: List of tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/TaskSummary' }
+                  total: { type: integer }
+
+  /tasks/{task_id}:
+    parameters:
+      - name: task_id
+        in: path
+        description: Task identifier
+        schema: { type: string, format: uuid }
+        required: true
+    get:
+      tags: [Tasks]
+      summary: Get task status and result
+      responses:
+        '200':
+          description: Task details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskDetailed' }
+        '404':
+          description: Not found or no access
+
+    delete:
+      tags: [Tasks]
+      summary: Cancel task
+      responses:
+        '204': { description: Deleted }
+
+  # ==============================================================================
+  # SYSTEM
+  # ==============================================================================
+  /healthcheck:
+    get:
+      security: []
+      summary: Health check probe
+      responses:
+        '200': { description: OK }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token issued by Auth Service. Verified via RSA public key.
+
+  schemas:
+    # --- SUBMISSION MODELS ---
+    CreateSubmissionRequest:
+      type: object
+      required: [filename, content_type, file_size_bytes]
+      properties:
+        filename: { type: string }
+        content_type: { type: string, enum: ["image/jpeg", "image/png", "application/fits"] }
+        file_size_bytes: { type: integer, maximum: 52428800 }
+
+    SubmissionCreatedResponse:
+      type: object
+      properties:
+        submission_id: { type: string, format: uuid }
+        object_key: { type: string }
+        upload_url: { type: string }
+        required_headers:
+          type: object
+          description: Headers required for S3 upload
+          properties:
+            x-amz-meta-userid: 
+              type: string
+              description: User ID for ownership validation
+
+    SubmissionSummary:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, processing, completed, failed] }
+        created_at: { type: string, format: date-time }
+        object_key: { type: string }
+
+    SubmissionDetailed:
+      allOf:
+        - $ref: '#/components/schemas/SubmissionSummary'
+        - type: object
+          properties:
+            tasks:
+              type: array
+              items: { $ref: '#/components/schemas/TaskSummary' }
+
+    # --- TASK MODELS ---
+    CreateTaskRequest:
+      type: object
+      required: [submission_id]
+      properties:
+        submission_id:
+          type: string
+          format: uuid
+          description: Submission ID with original file
+        options:
+          type: object
+          properties:
+            focal_length: { type: number }
+            pixel_size: { type: number }
+
+    TaskSummary:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        submission_id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, processing, completed, failed] }
+        created_at: { type: string, format: date-time }
+
+    TaskDetailed:
+      allOf:
+        - $ref: '#/components/schemas/TaskSummary'
+        - type: object
+          properties:
+            result:
+              type: object
+              nullable: true
+              properties:
+                center_ra: { type: number }
+                center_dec: { type: number }
+                image_url: { type: string }
+                annotated_image_url: { type: string }
+                mesh_json_url: { type: string }
+                wcs_url: { type: string }

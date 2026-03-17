@@ -28,6 +28,8 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: skymap
+      ZITADEL_ISSUER_URL: ${ZITADEL_ISSUER_URL:-http://localhost:8080}
+      ZITADEL_AUDIENCE: ${ZITADEL_AUDIENCE:-}
     ports:
       - "8001:8000"
     volumes:

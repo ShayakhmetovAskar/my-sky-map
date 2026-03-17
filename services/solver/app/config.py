@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     rabbitmq_pass: str = "guest"
     rabbitmq_queue: str = "solver_tasks"
 
+    # Solver
+    solver_backend: str = "online"  # "online" or "local"
+    astrometry_api_key: str = ""
+    astrometry_api_url: str = "https://nova.astrometry.net/api"
+
     # JWT
     jwt_public_key: str = ""
     jwt_algorithm: str = "RS256"

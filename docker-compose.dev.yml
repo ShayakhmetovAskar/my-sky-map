@@ -49,6 +49,8 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: skymap
+      SOLVER_BACKEND: online
+      ASTROMETRY_API_KEY: ${ASTROMETRY_API_KEY:-}
     volumes:
       - ./services/solver:/app
     depends_on:

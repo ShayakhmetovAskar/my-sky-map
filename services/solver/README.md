@@ -91,3 +91,24 @@ Swagger UI: http://localhost:8001/docs
 
 - **User:** `guest`
 - **Password:** `guest`
+
+### Как посмотреть сообщения в очереди
+
+1. Зайти в **Queues and Streams** → `solver_tasks`
+2. Внизу раскрыть **Get messages**
+3. Нажать **Get Message(s)** — покажет JSON:
+   ```json
+   {
+     "task_id": "734209b2-...",
+     "submission_id": "16fe8f69-...",
+     "object_key": "users/.../original.jpg",
+     "options": null
+   }
+   ```
+4. **Ack Mode = Nack message requeue true** — сообщение останется в очереди после просмотра
+
+### Полезные вкладки
+
+- **Queues** — очереди, количество сообщений, скорость publish/consume
+- **Connections** — кто подключён (solver-api)
+- **Exchanges** — default exchange используется для публикации

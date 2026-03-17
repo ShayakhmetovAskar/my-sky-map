@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..dependencies import get_current_user, get_db, get_queue
+from ..dependencies import get_current_user, get_db
 from ..models.db import Submission, Task
 from ..models.schemas import (
     CreateTaskRequest,
@@ -15,7 +15,6 @@ from ..models.schemas import (
     TaskDetailed,
     TaskSummary,
 )
-from ..services.queue import QueueService
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
@@ -25,7 +24,6 @@ async def create_task(
     body: CreateTaskRequest,
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    queue: QueueService = Depends(get_queue),
 ):
     query = select(Submission).where(Submission.id == body.submission_id, Submission.user_id == user_id)
     submission = (await db.execute(query)).scalar_one_or_none()
@@ -45,13 +43,7 @@ async def create_task(
     await db.commit()
     await db.refresh(task)
 
-    await queue.publish_task(
-        task_id=task.id,
-        submission_id=submission.id,
-        object_key=submission.object_key,
-        options=task.options,
-    )
-
+    # Worker will pick up the task via DB polling (see worker/main.py)
     return task
 
 
@@ -93,7 +85,6 @@ async def cancel_task(
     task_id: UUID,
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    queue: QueueService = Depends(get_queue),
 ):
     query = select(Task).where(Task.id == task_id, Task.user_id == user_id)
     task = (await db.execute(query)).scalar_one_or_none()
@@ -105,7 +96,5 @@ async def cancel_task(
     task.status = "cancelled"
     await db.commit()
     await db.refresh(task)
-
-    await queue.cancel_task(task.id)
 
     return task

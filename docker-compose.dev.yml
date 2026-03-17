@@ -22,14 +22,12 @@ services:
     build: ./services/solver
     container_name: solver_api_dev
     environment:
+      ROLE: api
       DATABASE_URL: postgresql+asyncpg://skymap_user:skymap_password@postgres:5432/skymap_db
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: skymap
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: guest
-      RABBITMQ_PASS: guest
     ports:
       - "8001:8000"
     volumes:
@@ -39,7 +37,22 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-      rabbitmq:
+
+  # --- Solver Worker ---
+  solver-worker:
+    build: ./services/solver
+    container_name: solver_worker_dev
+    environment:
+      ROLE: worker
+      DATABASE_URL: postgresql+asyncpg://skymap_user:skymap_password@postgres:5432/skymap_db
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: skymap
+    volumes:
+      - ./services/solver:/app
+    depends_on:
+      postgres:
         condition: service_healthy
 
   # --- Infrastructure ---

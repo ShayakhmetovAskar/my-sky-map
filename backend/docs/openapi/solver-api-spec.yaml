@@ -1,8 +1,15 @@
 openapi: 3.0.3
 info:
   title: Plate Solver Service
-  description: Plate solving service.
-  version: 1.0.0
+  description: |
+    Plate solving service for the Skymap project.
+    Accepts astronomical images, solves their coordinates via astrometry,
+    and returns calibration data (WCS, center coordinates, annotated images).
+  version: 1.1.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
 servers:
   - url: /api/v1
 
@@ -15,9 +22,15 @@ paths:
   # ==============================================================================
   /submissions:
     post:
+      operationId: createSubmission
       tags: [Submissions]
       summary: Create submission and get presigned upload URL
+      description: |
+        Creates a new submission record and returns a presigned S3 URL
+        for direct file upload. After uploading the file, the client must
+        call `POST /submissions/{id}/confirm` to mark the submission as ready.
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -29,19 +42,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SubmissionCreatedResponse'
+        '400':
+          description: Invalid request (bad content_type, file too large, etc.)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
     get:
+      operationId: listSubmissions
       tags: [Submissions]
       summary: List user submissions
       parameters:
         - name: limit
           in: query
           description: Maximum number of items to return
-          schema: { type: integer, default: 20 }
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
         - name: offset
           in: query
           description: Number of items to skip
-          schema: { type: integer, default: 0 }
+          schema: { type: integer, default: 0, minimum: 0 }
       responses:
         '200':
           description: List of submissions
@@ -54,6 +78,11 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/SubmissionSummary' }
                   total: { type: integer }
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /submissions/{submission_id}:
     parameters:
@@ -63,6 +92,7 @@ paths:
         schema: { type: string, format: uuid }
         required: true
     get:
+      operationId: getSubmission
       tags: [Submissions]
       summary: Get submission details
       responses:
@@ -73,45 +103,110 @@ paths:
               schema: { $ref: '#/components/schemas/SubmissionDetailed' }
         '404':
           description: Not found or no access
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
     delete:
+      operationId: deleteSubmission
       tags: [Submissions]
-      summary: Delete submission and all tasks
+      summary: Delete submission and cancel all active tasks
+      description: |
+        Deletes the submission, its uploaded file, and all associated tasks.
+        Active tasks are cancelled before deletion.
       responses:
         '204': { description: Deleted }
+        '404':
+          description: Not found or no access
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /submissions/{submission_id}/confirm:
+    parameters:
+      - name: submission_id
+        in: path
+        description: Submission identifier
+        schema: { type: string, format: uuid }
+        required: true
+    post:
+      operationId: confirmSubmissionUpload
+      tags: [Submissions]
+      summary: Confirm that the file has been uploaded to S3
+      description: |
+        After the client uploads the file using the presigned URL,
+        this endpoint transitions the submission from `pending` to `uploaded`.
+        Tasks can only be created for submissions in `uploaded` status.
+      responses:
+        '200':
+          description: Upload confirmed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubmissionSummary' }
+        '404':
+          description: Not found or no access
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '409':
+          description: Submission is not in pending status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   # ==============================================================================
   # TASKS
   # ==============================================================================
   /tasks:
     post:
+      operationId: createTask
       tags: [Tasks]
       summary: Create processing task
+      description: |
+        Queues a plate solving task for a given submission.
+        The submission must be in `uploaded` status.
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateTaskRequest'
       responses:
         '201':
-          description: Accepted
+          description: Task created and queued
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/TaskSummary'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: Submission not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '409':
+          description: Submission is not in uploaded status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
     get:
+      operationId: listTasks
       tags: [Tasks]
       summary: List user tasks
       parameters:
         - name: limit
           in: query
           description: Maximum number of items to return
-          schema: { type: integer, default: 20 }
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
         - name: offset
           in: query
           description: Number of items to skip
-          schema: { type: integer, default: 0 }
+          schema: { type: integer, default: 0, minimum: 0 }
         - name: submission_id
           in: query
           description: Filter by submission ID
@@ -128,6 +223,11 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/TaskSummary' }
                   total: { type: integer }
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /tasks/{task_id}:
     parameters:
@@ -137,6 +237,7 @@ paths:
         schema: { type: string, format: uuid }
         required: true
     get:
+      operationId: getTask
       tags: [Tasks]
       summary: Get task status and result
       responses:
@@ -147,22 +248,59 @@ paths:
               schema: { $ref: '#/components/schemas/TaskDetailed' }
         '404':
           description: Not found or no access
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
-    delete:
+  /tasks/{task_id}/cancel:
+    parameters:
+      - name: task_id
+        in: path
+        description: Task identifier
+        schema: { type: string, format: uuid }
+        required: true
+    post:
+      operationId: cancelTask
       tags: [Tasks]
-      summary: Cancel task
+      summary: Cancel a running or pending task
+      description: |
+        Cancels the task if it is in `pending` or `processing` status.
+        Already completed or failed tasks cannot be cancelled.
       responses:
-        '204': { description: Deleted }
+        '200':
+          description: Task cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskSummary' }
+        '404':
+          description: Not found or no access
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '409':
+          description: Task is already completed or failed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   # ==============================================================================
   # SYSTEM
   # ==============================================================================
   /healthcheck:
     get:
+      operationId: healthcheck
       security: []
+      tags: [System]
       summary: Health check probe
       responses:
-        '200': { description: OK }
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
 
 components:
   securitySchemes:
@@ -173,26 +311,52 @@ components:
       description: JWT token issued by Auth Service. Verified via RSA public key.
 
   schemas:
+    # --- ERROR ---
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Machine-readable error code
+              example: submission_not_found
+            message:
+              type: string
+              description: Human-readable error message
+              example: Submission with the given ID was not found
+
     # --- SUBMISSION MODELS ---
     CreateSubmissionRequest:
       type: object
       required: [filename, content_type, file_size_bytes]
       properties:
-        filename: { type: string }
-        content_type: { type: string, enum: ["image/jpeg", "image/png", "application/fits"] }
-        file_size_bytes: { type: integer, maximum: 52428800 }
+        filename: { type: string, example: "andromeda.fits" }
+        content_type:
+          type: string
+          enum: ["image/jpeg", "image/png", "application/fits"]
+        file_size_bytes:
+          type: integer
+          minimum: 1
+          maximum: 52428800
+          description: File size in bytes (max 50 MB)
 
     SubmissionCreatedResponse:
       type: object
       properties:
         submission_id: { type: string, format: uuid }
         object_key: { type: string }
-        upload_url: { type: string }
+        upload_url:
+          type: string
+          description: Presigned S3 URL for direct file upload (PUT)
         required_headers:
           type: object
-          description: Headers required for S3 upload
+          description: Headers the client must include in the S3 PUT request
           properties:
-            x-amz-meta-userid: 
+            x-amz-meta-userid:
               type: string
               description: User ID for ownership validation
 
@@ -200,8 +364,17 @@ components:
       type: object
       properties:
         id: { type: string, format: uuid }
-        status: { type: string, enum: [pending, processing, completed, failed] }
+        status:
+          type: string
+          enum: [pending, uploaded, processing, completed, failed]
+          description: |
+            - pending: created, awaiting file upload
+            - uploaded: file uploaded, ready for task creation
+            - processing: has active tasks
+            - completed: all tasks finished
+            - failed: error occurred
         created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
         object_key: { type: string }
 
     SubmissionDetailed:
@@ -221,20 +394,34 @@ components:
         submission_id:
           type: string
           format: uuid
-          description: Submission ID with original file
+          description: Submission ID with uploaded file
         options:
           type: object
+          description: Solver hints (all optional)
           properties:
-            focal_length: { type: number }
-            pixel_size: { type: number }
+            focal_length:
+              type: number
+              minimum: 1
+              description: Focal length in mm
+            pixel_size:
+              type: number
+              minimum: 0.1
+              description: Pixel size in micrometers
 
     TaskSummary:
       type: object
       properties:
         id: { type: string, format: uuid }
         submission_id: { type: string, format: uuid }
-        status: { type: string, enum: [pending, processing, completed, failed] }
+        status:
+          type: string
+          enum: [pending, processing, completed, failed, cancelled]
         created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
 
     TaskDetailed:
       allOf:
@@ -244,10 +431,11 @@ components:
             result:
               type: object
               nullable: true
+              description: Arbitrary solver result object. Structure may evolve.
+            error:
+              type: object
+              nullable: true
+              description: Present when status is "failed"
               properties:
-                center_ra: { type: number }
-                center_dec: { type: number }
-                image_url: { type: string }
-                annotated_image_url: { type: string }
-                mesh_json_url: { type: string }
-                wcs_url: { type: string }
+                code: { type: string, example: solver_timeout }
+                message: { type: string, example: "Solver did not find a solution within the time limit" }

@@ -8,16 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from .config import settings
 from .services.storage import StorageService
-from .services.queue import QueueService
 
 engine = create_async_engine(settings.database_url, echo=False)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 security = HTTPBearer()
 
-# Singletons — created once, reused across requests
 _storage = StorageService()
-_queue = QueueService()
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -43,7 +40,3 @@ async def get_current_user(
 
 def get_storage() -> StorageService:
     return _storage
-
-
-def get_queue() -> QueueService:
-    return _queue

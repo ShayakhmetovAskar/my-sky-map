@@ -1,5 +1,5 @@
 COMPOSE = docker compose -f docker-compose.dev.yml
-SOLVER_SERVICES = solver-api postgres minio rabbitmq
+SOLVER_SERVICES = solver-api solver-worker postgres minio
 
 # --- Solver ---
 up:
@@ -11,8 +11,11 @@ down:
 logs:
 	$(COMPOSE) logs solver-api -f --tail 50
 
+logs-worker:
+	$(COMPOSE) logs solver-worker -f --tail 50
+
 restart:
-	$(COMPOSE) restart solver-api
+	$(COMPOSE) restart solver-api solver-worker
 
 ps:
 	$(COMPOSE) ps
@@ -35,4 +38,4 @@ up-all:
 clean:
 	$(COMPOSE) down -v --remove-orphans
 
-.PHONY: up down logs restart ps db-shell migrate migration up-all clean
+.PHONY: up down logs logs-worker restart ps db-shell migrate migration up-all clean

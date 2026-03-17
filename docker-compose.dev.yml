@@ -1,4 +1,12 @@
 services:
+  # --- Frontend ---
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vite_frontend_dev
+
+  # --- Static Astro Data (legacy backend) ---
   backend:
     build: ./backend
     container_name: fastapi_backend_dev
@@ -7,18 +15,87 @@ services:
     volumes:
       - ./backend:/app
       - ${data_root}:/data:ro
-    
     command: uvicorn src.server:app --host 0.0.0.0 --port 8000
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: vite_frontend_dev
-    
+  # --- Solver API ---
+  solver-api:
+    build: ./services/solver
+    container_name: solver_api_dev
+    environment:
+      DATABASE_URL: postgresql+asyncpg://skymap_user:skymap_password@postgres:5432/skymap_db
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: skymap
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: guest
+      RABBITMQ_PASS: guest
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./services/solver:/app
     depends_on:
-      - backend
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
+  # --- Infrastructure ---
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres_dev
+    environment:
+      POSTGRES_USER: skymap_user
+      POSTGRES_PASSWORD: skymap_password
+      POSTGRES_DB: skymap_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skymap_user -d skymap_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio
+    container_name: minio_dev
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq_dev
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- Nginx ---
   nginx_proxy:
     image: nginx:alpine
     container_name: skymap_nginx_dev
@@ -29,3 +106,9 @@ services:
     depends_on:
       - backend
       - frontend
+      - solver-api
+
+volumes:
+  postgres_data:
+  minio_data:
+  rabbitmq_data:

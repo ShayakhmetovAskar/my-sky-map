@@ -7,3 +7,4 @@ asyncpg>=0.30
 minio>=7.2
 aio-pika>=9.0
 python-jose[cryptography]>=3.3
+alembic>=1.13

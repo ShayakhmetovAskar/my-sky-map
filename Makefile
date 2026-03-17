@@ -1,0 +1,38 @@
+COMPOSE = docker compose -f docker-compose.dev.yml
+SOLVER_SERVICES = solver-api postgres minio rabbitmq
+
+# --- Solver ---
+up:
+	$(COMPOSE) up $(SOLVER_SERVICES) -d --build
+
+down:
+	$(COMPOSE) down
+
+logs:
+	$(COMPOSE) logs solver-api -f --tail 50
+
+restart:
+	$(COMPOSE) restart solver-api
+
+ps:
+	$(COMPOSE) ps
+
+# --- Database ---
+db-shell:
+	$(COMPOSE) exec postgres psql -U skymap_user -d skymap_db
+
+migrate:
+	$(COMPOSE) exec solver-api alembic upgrade head
+
+migration:
+	$(COMPOSE) exec solver-api alembic revision --autogenerate -m "$(msg)"
+
+# --- Full stack ---
+up-all:
+	$(COMPOSE) up -d --build
+
+# --- Cleanup ---
+clean:
+	$(COMPOSE) down -v --remove-orphans
+
+.PHONY: up down logs restart ps db-shell migrate migration up-all clean

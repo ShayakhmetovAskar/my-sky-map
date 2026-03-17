@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..dependencies import get_current_user, get_db
+from ..dependencies import get_current_user, get_db, get_storage
 from ..models.db import Submission
 from ..models.schemas import (
     CreateSubmissionRequest,
@@ -20,7 +20,6 @@ from ..models.schemas import (
 from ..services.storage import StorageService
 
 router = APIRouter(prefix="/submissions", tags=["Submissions"])
-storage = StorageService()
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=SubmissionCreatedResponse)
@@ -28,6 +27,7 @@ async def create_submission(
     body: CreateSubmissionRequest,
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    storage: StorageService = Depends(get_storage),
 ):
     submission_id = uuid4()
     ext = PurePosixPath(body.filename).suffix
@@ -46,7 +46,7 @@ async def create_submission(
     await db.commit()
     await db.refresh(submission)
 
-    upload_url = await storage.generate_presigned_upload_url(object_key, body.content_type.value)
+    upload_url = storage.generate_presigned_upload_url(object_key, body.content_type.value)
 
     return SubmissionCreatedResponse(
         submission_id=submission.id,
@@ -99,13 +99,14 @@ async def delete_submission(
     submission_id: UUID,
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    storage: StorageService = Depends(get_storage),
 ):
     query = select(Submission).where(Submission.id == submission_id, Submission.user_id == user_id)
     submission = (await db.execute(query)).scalar_one_or_none()
     if not submission:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found")
 
-    await storage.delete_object(submission.object_key)
+    storage.delete_object(submission.object_key)
     await db.delete(submission)
     await db.commit()
 

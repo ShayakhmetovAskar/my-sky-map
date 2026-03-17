@@ -9,6 +9,7 @@ class Settings(BaseSettings):
 
     # MinIO / S3
     minio_endpoint: str = "localhost:9000"
+    minio_external_endpoint: str = ""
     minio_access_key: str = "admin"
     minio_secret_key: str = "password"
     minio_bucket: str = "skymap"

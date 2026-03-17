@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..dependencies import get_current_user, get_db
+from ..dependencies import get_current_user, get_db, get_queue
 from ..models.db import Submission, Task
 from ..models.schemas import (
     CreateTaskRequest,
@@ -18,7 +18,6 @@ from ..models.schemas import (
 from ..services.queue import QueueService
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
-queue = QueueService()
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=TaskSummary)
@@ -26,6 +25,7 @@ async def create_task(
     body: CreateTaskRequest,
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    queue: QueueService = Depends(get_queue),
 ):
     query = select(Submission).where(Submission.id == body.submission_id, Submission.user_id == user_id)
     submission = (await db.execute(query)).scalar_one_or_none()
@@ -93,6 +93,7 @@ async def cancel_task(
     task_id: UUID,
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    queue: QueueService = Depends(get_queue),
 ):
     query = select(Task).where(Task.id == task_id, Task.user_id == user_id)
     task = (await db.execute(query)).scalar_one_or_none()

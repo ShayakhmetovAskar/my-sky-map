@@ -27,9 +27,9 @@ class Settings(BaseSettings):
     astrometry_api_key: str = ""
     astrometry_api_url: str = "https://nova.astrometry.net/api"
 
-    # JWT
-    jwt_public_key: str = ""
-    jwt_algorithm: str = "RS256"
+    # Auth (Zitadel)
+    zitadel_issuer_url: str = "http://localhost:8080"
+    zitadel_audience: str = ""
 
     class Config:
         env_file = ".env"

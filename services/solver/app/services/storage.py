@@ -56,6 +56,15 @@ class StorageService:
         )
         return self._externalize_url(url)
 
+    def download_object(self, object_key: str, local_path: str) -> None:
+        """Download an object from storage to local file."""
+        self.client.fget_object(self.bucket, object_key, local_path)
+
+    def upload_file(self, object_key: str, local_path: str, content_type: str = "application/octet-stream") -> None:
+        """Upload a local file to storage."""
+        self._ensure_bucket()
+        self.client.fput_object(self.bucket, object_key, local_path, content_type=content_type)
+
     def delete_object(self, object_key: str) -> None:
         """Delete an object from storage."""
         try:

@@ -36,11 +36,19 @@ AUTH_COMPOSE = docker compose -f services/auth/docker-compose.zitadel.yml
 up-auth:
 	$(AUTH_COMPOSE) up -d
 
+reset-auth:
+	$(AUTH_COMPOSE) down -v
+	$(AUTH_COMPOSE) up -d
+
 down-auth:
 	$(AUTH_COMPOSE) down
 
 logs-auth:
 	$(AUTH_COMPOSE) logs zitadel -f --tail 50
+
+seed-auth:
+	services/.venv/bin/pip install -q requests
+	services/.venv/bin/python services/auth/scripts/seed.py
 
 # --- Full stack ---
 up-all:
@@ -52,4 +60,4 @@ clean:
 	$(COMPOSE) down -v --remove-orphans
 	$(AUTH_COMPOSE) down -v --remove-orphans
 
-.PHONY: up down logs logs-worker restart ps db-shell migrate migration up-auth down-auth logs-auth up-all clean
+.PHONY: up down logs logs-worker restart ps db-shell migrate migration up-auth reset-auth down-auth logs-auth seed-auth up-all clean

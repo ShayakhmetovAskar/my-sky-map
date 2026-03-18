@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Skymap API Playground</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+  <style>
+    :root {
+      --spacing: 1rem;
+    }
+    body {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 1.5rem 1rem;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+      border-bottom: 1px solid var(--pico-muted-border-color);
+      padding-bottom: 1rem;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.4rem;
+    }
+    #auth-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    #user-info {
+      font-size: 0.875rem;
+      color: var(--pico-muted-color);
+    }
+    details summary {
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 0.5rem;
+    }
+    .config-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+    .config-grid label {
+      margin-bottom: 0;
+    }
+    .request-grid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.5rem;
+      align-items: end;
+    }
+    #method-badge {
+      display: inline-block;
+      padding: 0.35rem 0.6rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      font-family: monospace;
+      color: white;
+      background: var(--method-color, #888);
+      align-self: center;
+      margin-bottom: 0.6rem;
+    }
+    #response-box {
+      background: var(--pico-code-background-color);
+      border-radius: var(--pico-border-radius);
+      padding: 1rem;
+      min-height: 120px;
+      overflow-x: auto;
+    }
+    #response-box pre {
+      margin: 0;
+      font-size: 0.85rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      font-family: monospace;
+      margin-bottom: 0.5rem;
+    }
+    .status-2xx { background: #d1fae5; color: #065f46; }
+    .status-4xx { background: #fee2e2; color: #991b1b; }
+    .status-5xx { background: #fef3c7; color: #92400e; }
+    #send-btn { margin-top: 0; }
+    .action-btn {
+      display: inline-block;
+      margin-top: 0.5rem;
+      margin-right: 0.4rem;
+      font-size: 0.8rem;
+      padding: 0.3rem 0.7rem;
+      cursor: pointer;
+    }
+    textarea { font-family: monospace; font-size: 0.875rem; }
+    .section-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--pico-muted-color);
+      margin-bottom: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Skymap API Playground</h1>
+  <div id="auth-bar">
+    <span id="user-info"></span>
+    <button id="auth-btn" class="outline" style="margin:0; padding: 0.4rem 0.9rem; font-size: 0.875rem;">
+      Login via Zitadel
+    </button>
+  </div>
+</header>
+
+<details id="config-section">
+  <summary>Configuration</summary>
+  <div class="config-grid">
+    <label>
+      Zitadel URL
+      <input type="text" id="cfg-zitadel-url" placeholder="http://host.docker.internal:8080" />
+    </label>
+    <label>
+      Client ID
+      <input type="text" id="cfg-client-id" placeholder="Paste from Zitadel → User Agent app" />
+    </label>
+    <label>
+      API Base URL
+      <input type="text" id="cfg-api-url" placeholder="http://localhost:8001" />
+    </label>
+    <label>
+      Redirect URI <small>(auto)</small>
+      <input type="text" id="cfg-redirect-uri" readonly />
+    </label>
+  </div>
+  <button id="save-config-btn" style="margin-top: 0.75rem;">Save config</button>
+</details>
+
+<hr />
+
+<div>
+  <p class="section-title">Endpoint</p>
+  <div class="request-grid">
+    <span id="method-badge">GET</span>
+    <select id="endpoint-select"></select>
+  </div>
+
+  <div id="path-params-section" style="display:none; margin-top: 0.5rem;">
+    <label id="path-params-label">
+      Path param
+      <input type="text" id="path-param-input" placeholder="UUID" />
+    </label>
+  </div>
+
+  <div id="file-section" style="display:none; margin-top: 0.5rem;">
+    <label>
+      Image file
+      <input type="file" id="file-input" accept="image/jpeg,image/png,application/fits,.fits,.fit" />
+    </label>
+    <small id="file-info" style="color: var(--pico-muted-color);"></small>
+  </div>
+
+  <div id="body-section" style="display:none; margin-top: 0.5rem;">
+    <label>
+      Request body (JSON)
+      <textarea id="body-input" rows="5" placeholder="{}"></textarea>
+    </label>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:1rem;">
+    <button id="send-btn">Send</button>
+    <label id="auto-flow-label" style="display:none;align-items:center;gap:0.4rem;font-size:0.85rem;margin:0;cursor:pointer;">
+      <input type="checkbox" id="auto-flow-cb" style="margin:0;" />
+      Auto-flow (upload → confirm → create task)
+    </label>
+  </div>
+</div>
+
+<hr />
+
+<div>
+  <p class="section-title">Response</p>
+  <div id="response-box">
+    <pre id="response-pre" style="color: var(--pico-muted-color);">— no request sent yet —</pre>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

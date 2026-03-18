@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+
+# Virtual environments
+.venv/
+venv/
+services/.venv/
+
+# Environment / secrets
+.env
+*.key
+*.pem
+authorized_key.json
+
+# Logs
+*.log
+
+# Data / uploads
+db_data/
+uploads/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Claude Code
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc / temporary
+junk/
+misc/

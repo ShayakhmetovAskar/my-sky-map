@@ -8,8 +8,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://skymap_user:skymap_password@localhost:5432/skymap_db"
 
     # MinIO / S3
-    minio_endpoint: str = "localhost:9000"
-    minio_external_endpoint: str = ""
+    minio_endpoint: str = "host.docker.internal:9000"
     minio_access_key: str = "admin"
     minio_secret_key: str = "password"
     minio_bucket: str = "skymap"
@@ -28,7 +27,7 @@ class Settings(BaseSettings):
     astrometry_api_url: str = "https://nova.astrometry.net/api"
 
     # Auth (Zitadel)
-    zitadel_issuer_url: str = "http://localhost:8080"
+    zitadel_issuer_url: str = "http://host.docker.internal:8080"
     zitadel_audience: str = ""
 
     class Config:

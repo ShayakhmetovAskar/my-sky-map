@@ -26,35 +26,22 @@ class StorageService:
             self.client.make_bucket(self.bucket)
             logger.info("Created bucket: %s", self.bucket)
 
-    def _externalize_url(self, url: str) -> str:
-        """Replace internal MinIO hostname with external endpoint for client access."""
-        ext = settings.minio_external_endpoint
-        if ext and ext != settings.minio_endpoint:
-            return url.replace(
-                f"http://{settings.minio_endpoint}",
-                f"http://{ext}",
-                1,
-            )
-        return url
-
     def generate_presigned_upload_url(self, object_key: str, content_type: str) -> str:
         """Generate a presigned PUT URL for direct client upload."""
         self._ensure_bucket()
-        url = self.client.presigned_put_object(
+        return self.client.presigned_put_object(
             self.bucket,
             object_key,
             expires=timedelta(hours=1),
         )
-        return self._externalize_url(url)
 
     def generate_presigned_download_url(self, object_key: str) -> str:
         """Generate a presigned GET URL for client download."""
-        url = self.client.presigned_get_object(
+        return self.client.presigned_get_object(
             self.bucket,
             object_key,
             expires=timedelta(hours=1),
         )
-        return self._externalize_url(url)
 
     def download_object(self, object_key: str, local_path: str) -> None:
         """Download an object from storage to local file."""

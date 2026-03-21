@@ -69,19 +69,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install YC CLI
-        run: |
-          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -n
-          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
-
-      - name: Auth YC
-        run: |
-          echo '${{ secrets.YC_SA_KEY_JSON }}' | base64 -d > sa-key.json
-          yc config set service-account-key sa-key.json
-          rm sa-key.json
-
       - name: Login to Container Registry
-        run: echo '${{ secrets.YC_SA_KEY_JSON }}' | base64 -d | docker login --username json_key --password-stdin cr.yandex
+        uses: yc-actions/yc-cr-login@v3
+        with:
+          yc-sa-json-credentials: ${{ secrets.YC_SA_KEY_JSON }}
 
       - name: Build and push image
         run: |
@@ -91,8 +82,19 @@ jobs:
             services/solver/
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ github.sha }}
 
+      - name: Install YC CLI
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -n
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+
       - name: Configure kubectl
-        run: yc managed-kubernetes cluster get-credentials ${{ env.K8S_CLUSTER_ID }} --external --force
+        env:
+          SA_KEY: ${{ secrets.YC_SA_KEY_JSON }}
+        run: |
+          printenv SA_KEY > sa-key.json
+          yc config set service-account-key sa-key.json
+          yc managed-kubernetes cluster get-credentials ${{ env.K8S_CLUSTER_ID }} --external --force
+          rm sa-key.json
 
       - name: Apply manifests
         run: kubectl apply -f k8s/base/ --recursive

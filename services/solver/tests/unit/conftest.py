@@ -1,5 +1,7 @@
 """Unit test fixtures — mocked services, real DB schema via Alembic."""
 
+import os
+
 import pytest
 from unittest.mock import MagicMock
 
@@ -14,7 +16,10 @@ from app.main import app
 from app.services.storage import StorageService
 
 TEST_USER = "test-user-001"
-TEST_DB_URL = "postgresql+asyncpg://skymap_user:skymap_password@localhost:5433/skymap_test"
+TEST_DB_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql+asyncpg://skymap_user:skymap_password@localhost:5433/skymap_test",
+)
 
 
 # --- Alembic migrations (once per session) ---

@@ -1,0 +1,58 @@
+name: PR Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: skymap_user
+          POSTGRES_PASSWORD: skymap_password
+          POSTGRES_DB: skymap_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U skymap_user -d skymap_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio server /data
+          for i in $(seq 1 15); do
+            curl -sf http://localhost:9000/minio/health/live && break
+            sleep 2
+          done
+          curl -s -X PUT http://localhost:9000/skymap -u minioadmin:minioadmin
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r services/solver/requirements.txt
+
+      - name: Run tests
+        working-directory: services/solver
+        env:
+          DATABASE_URL: postgresql+asyncpg://skymap_user:skymap_password@localhost:5432/skymap_test
+          MINIO_ENDPOINT: localhost:9000
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+          MINIO_BUCKET: skymap
+        run: python -m pytest tests/unit tests/scenario -v --tb=short

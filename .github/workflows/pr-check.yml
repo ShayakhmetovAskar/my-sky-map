@@ -23,8 +23,24 @@ jobs:
           --health-timeout=5s
           --health-retries=5
 
+      minio:
+        image: minio/minio:latest
+        ports:
+          - 9000:9000
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        options: >-
+          --health-cmd="curl -f http://localhost:9000/minio/health/live || exit 1"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: Create MinIO bucket
+        run: curl -s -X PUT http://localhost:9000/skymap -u minioadmin:minioadmin
 
       - name: Setup Python
         uses: actions/setup-python@v5

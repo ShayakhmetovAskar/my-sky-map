@@ -4,6 +4,8 @@ Paradigm: mock ONLY external clients (astrometry.net API).
 DB is real Postgres, storage is real MinIO.
 """
 
+import os
+
 import pytest
 from unittest.mock import AsyncMock
 
@@ -19,7 +21,10 @@ from app.services.storage import StorageService
 from worker.solvers.base import BaseSolver, SolveResult
 
 TEST_USER = "scenario-user-001"
-TEST_DB_URL = "postgresql+asyncpg://skymap_user:skymap_password@localhost:5433/skymap_test"
+TEST_DB_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql+asyncpg://skymap_user:skymap_password@localhost:5433/skymap_test",
+)
 
 FAKE_CALIBRATION = SolveResult(
     center_ra=83.857,

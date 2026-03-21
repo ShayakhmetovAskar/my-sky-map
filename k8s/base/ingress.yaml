@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: skymap-ingress
+  name: skymap-api
   namespace: skymap
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /$2
@@ -18,3 +18,22 @@ spec:
                 name: solver-api
                 port:
                   number: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: skymap-auth
+  namespace: skymap
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: auth.skymap.afsh.space
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: zitadel
+                port:
+                  number: 8080

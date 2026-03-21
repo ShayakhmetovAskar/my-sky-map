@@ -76,12 +76,12 @@ jobs:
 
       - name: Auth YC
         run: |
-          echo '${{ secrets.YC_SA_KEY_JSON }}' > sa-key.json
+          echo '${{ secrets.YC_SA_KEY_JSON }}' | base64 -d > sa-key.json
           yc config set service-account-key sa-key.json
           rm sa-key.json
 
       - name: Login to Container Registry
-        run: echo '${{ secrets.YC_SA_KEY_JSON }}' | docker login --username json_key --password-stdin cr.yandex
+        run: echo '${{ secrets.YC_SA_KEY_JSON }}' | base64 -d | docker login --username json_key --password-stdin cr.yandex
 
       - name: Build and push image
         run: |

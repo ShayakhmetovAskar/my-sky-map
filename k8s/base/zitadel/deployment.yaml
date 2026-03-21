@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zitadel
+  namespace: skymap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zitadel
+  template:
+    metadata:
+      labels:
+        app: zitadel
+    spec:
+      containers:
+        - name: zitadel
+          image: ghcr.io/zitadel/zitadel:latest
+          command: ["start-from-init", "--masterkeyFromEnv", "--tlsMode", "disabled"]
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ZITADEL_MASTERKEY
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-secrets
+                  key: ZITADEL_MASTERKEY
+            - name: ZITADEL_DATABASE_POSTGRES_HOST
+              value: zitadel-db
+            - name: ZITADEL_DATABASE_POSTGRES_PORT
+              value: "5432"
+            - name: ZITADEL_DATABASE_POSTGRES_DATABASE
+              value: zitadel
+            - name: ZITADEL_DATABASE_POSTGRES_USER_USERNAME
+              value: zitadel
+            - name: ZITADEL_DATABASE_POSTGRES_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-secrets
+                  key: ZITADEL_DB_PASSWORD
+            - name: ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME
+              value: postgres
+            - name: ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-secrets
+                  key: ZITADEL_DB_PASSWORD
+            - name: ZITADEL_EXTERNALDOMAIN
+              value: auth.skymap.afsh.space
+            - name: ZITADEL_EXTERNALPORT
+              value: "443"
+            - name: ZITADEL_EXTERNALSECURE
+              value: "true"
+            - name: ZITADEL_FIRSTINSTANCE_ORG_NAME
+              value: Skymap
+            - name: ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED
+              value: "false"
+          readinessProbe:
+            httpGet:
+              path: /debug/healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /debug/healthz
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

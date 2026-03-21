@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: skymap-config
+  namespace: skymap
+data:
+  MINIO_ENDPOINT: "storage.yandexcloud.net"
+  MINIO_BUCKET: "solver-data"
+  MINIO_SECURE: "true"
+  ZITADEL_ISSUER_URL: ""
+  ZITADEL_AUDIENCE: ""

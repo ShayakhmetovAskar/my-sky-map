@@ -53,6 +53,7 @@ services:
       MINIO_BUCKET: skymap
       SOLVER_BACKEND: online
       ASTROMETRY_API_KEY: ${ASTROMETRY_API_KEY:-}
+      ENABLE_DOCS: "true"
     volumes:
       - ./services/solver:/app
     depends_on:

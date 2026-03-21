@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: solver-worker
+  namespace: skymap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: solver-worker
+  template:
+    metadata:
+      labels:
+        app: solver-worker
+    spec:
+      containers:
+        - name: solver-worker
+          image: cr.yandex/crpvlpmjteb6egojpc4g/skymap-solver:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: skymap-config
+          env:
+            - name: ROLE
+              value: "worker"
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-secrets
+                  key: POSTGRES_DB
+            - name: DATABASE_URL
+              value: "postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-secrets
+                  key: MINIO_ACCESS_KEY
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-secrets
+                  key: MINIO_SECRET_KEY
+            - name: ASTROMETRY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-secrets
+                  key: ASTROMETRY_API_KEY
+          livenessProbe:
+            exec:
+              command: ["python3", "-c", "import os; os.stat('/proc/1/status')"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command: ["python3", "-c", "import os; os.stat('/proc/1/status')"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

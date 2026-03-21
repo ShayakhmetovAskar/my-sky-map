@@ -1,0 +1,115 @@
+name: Deploy to Staging
+
+on:
+  workflow_dispatch:
+
+env:
+  REGISTRY: cr.yandex/crpvlpmjteb6egojpc4g
+  IMAGE: skymap-solver
+  K8S_NAMESPACE: skymap
+  K8S_CLUSTER_ID: cate1dh5sg9041khenvi
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: skymap_user
+          POSTGRES_PASSWORD: skymap_password
+          POSTGRES_DB: skymap_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U skymap_user -d skymap_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio server /data
+          for i in $(seq 1 15); do
+            curl -sf http://localhost:9000/minio/health/live && break
+            sleep 2
+          done
+          curl -s -X PUT http://localhost:9000/skymap -u minioadmin:minioadmin
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r services/solver/requirements.txt
+
+      - name: Run tests
+        working-directory: services/solver
+        env:
+          DATABASE_URL: postgresql+asyncpg://skymap_user:skymap_password@localhost:5432/skymap_test
+          MINIO_ENDPOINT: localhost:9000
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+          MINIO_BUCKET: skymap
+        run: python -m pytest tests/unit tests/scenario -v --tb=short
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install YC CLI
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -n
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+
+      - name: Auth YC
+        run: |
+          echo '${{ secrets.YC_SA_KEY_JSON }}' > sa-key.json
+          yc config set service-account-key sa-key.json
+          rm sa-key.json
+
+      - name: Login to Container Registry
+        run: echo '${{ secrets.YC_SA_KEY_JSON }}' | docker login --username json_key --password-stdin cr.yandex
+
+      - name: Build and push image
+        run: |
+          docker build \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ github.sha }} \
+            -f services/solver/Dockerfile \
+            services/solver/
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ github.sha }}
+
+      - name: Configure kubectl
+        run: yc managed-kubernetes cluster get-credentials ${{ env.K8S_CLUSTER_ID }} --external --force
+
+      - name: Apply manifests
+        run: kubectl apply -f k8s/base/ --recursive
+
+      - name: Update image tag
+        run: |
+          kubectl set image deployment/solver-api \
+            solver-api=${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ github.sha }} \
+            -n ${{ env.K8S_NAMESPACE }}
+          kubectl set image deployment/solver-worker \
+            solver-worker=${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ github.sha }} \
+            -n ${{ env.K8S_NAMESPACE }}
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/solver-api -n ${{ env.K8S_NAMESPACE }} --timeout=120s
+          kubectl rollout status deployment/solver-worker -n ${{ env.K8S_NAMESPACE }} --timeout=120s
+
+      - name: Verify health
+        run: curl -sf https://skymap.afsh.space/api/v1/healthcheck

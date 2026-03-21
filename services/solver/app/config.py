@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     zitadel_issuer_url: str = "http://host.docker.internal:8080"
     zitadel_audience: str = ""
 
+    # App
+    enable_docs: bool = False
+
     class Config:
         env_file = ".env"
 

@@ -79,13 +79,5 @@ async def client(mock_storage):
     await test_engine.dispose()
 
 
-@pytest.fixture
-async def db_session(client):
-    """Direct DB session for inserting test data."""
-    test_engine = create_async_engine(TEST_DB_URL, echo=False)
-    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
-    async with session_factory() as session:
-        yield session
-    await test_engine.dispose()
 
 

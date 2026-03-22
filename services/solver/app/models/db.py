@@ -112,7 +112,7 @@ class StarCatalog(Base):
     # Metadata
     source = Column(String, nullable=False, default="iau")
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     aliases = relationship("StarAlias", back_populates="star", cascade="all, delete-orphan")
 

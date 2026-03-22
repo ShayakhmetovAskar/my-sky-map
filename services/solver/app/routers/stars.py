@@ -1,12 +1,17 @@
 """Star catalog — 3-level lookup: in-memory cache → PostgreSQL → SIMBAD API."""
 
+import asyncio
 import json
 import logging
+import re
+import signal
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_db
@@ -16,8 +21,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/stars", tags=["Stars"])
 
-# In-memory cache: source_id → proper_name (or None for negative cache)
+# In-memory LRU cache: source_id → proper_name (or None for negative cache)
+_MAX_CACHE_SIZE = 10_000
 _cache: dict[str, Optional[str]] = {}
+
+# Validate source_id: Gaia DR3 source_id is a positive integer (up to 19 digits)
+_SOURCE_ID_PATTERN = re.compile(r"^\d{1,19}$")
+
+SIMBAD_TIMEOUT = 10  # seconds
 
 
 def _seed_cache():
@@ -35,13 +46,21 @@ def _seed_cache():
 _seed_cache()
 
 
+def _evict_cache_if_needed():
+    """Remove oldest entries if cache exceeds limit."""
+    if len(_cache) > _MAX_CACHE_SIZE:
+        excess = len(_cache) - _MAX_CACHE_SIZE
+        keys_to_remove = list(_cache.keys())[:excess]
+        for k in keys_to_remove:
+            del _cache[k]
+
+
 async def _lookup_simbad(source_id: str) -> Optional[dict]:
     """Query SIMBAD for star identifiers by Gaia DR3 source_id.
 
     Returns dict with available fields or None if not found.
     Runs in thread pool since astroquery is synchronous.
     """
-    import asyncio
 
     def _query():
         try:
@@ -49,6 +68,7 @@ async def _lookup_simbad(source_id: str) -> Optional[dict]:
 
             simbad = Simbad()
             simbad.add_votable_fields("ids", "sp", "flux(V)", "flux(B)")
+            simbad.TIMEOUT = SIMBAD_TIMEOUT
 
             result = simbad.query_object(f"Gaia DR3 {source_id}")
             if result is None or len(result) == 0:
@@ -115,37 +135,56 @@ async def _lookup_simbad(source_id: str) -> Optional[dict]:
             logger.warning("SIMBAD query failed for %s: %s", source_id, e)
             return None
 
-    return await asyncio.get_event_loop().run_in_executor(None, _query)
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_query),
+            timeout=SIMBAD_TIMEOUT + 5,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("SIMBAD query timed out for %s", source_id)
+        return None
 
 
 async def _save_simbad_result(db: AsyncSession, source_id: str, simbad_data: dict):
-    """Save SIMBAD result to star_catalog and star_aliases."""
-    star = StarCatalog(
-        source_id=source_id,
-        proper_name=simbad_data.get("main_id"),
-        hip_id=simbad_data.get("hip_id"),
-        hd_id=simbad_data.get("hd_id"),
-        hr_id=simbad_data.get("hr_id"),
-        sao_id=simbad_data.get("sao_id"),
-        tyc_id=simbad_data.get("tyc_id"),
-        bd_id=simbad_data.get("bd_id"),
-        spectral_type=simbad_data.get("spectral_type"),
-        mag_v=simbad_data.get("mag_v"),
-        mag_b=simbad_data.get("mag_b"),
-        source="simbad",
-    )
-    db.add(star)
+    """Save SIMBAD result to star_catalog and star_aliases. Handles race conditions."""
+    try:
+        star = StarCatalog(
+            source_id=source_id,
+            proper_name=simbad_data.get("main_id"),
+            hip_id=simbad_data.get("hip_id"),
+            hd_id=simbad_data.get("hd_id"),
+            hr_id=simbad_data.get("hr_id"),
+            sao_id=simbad_data.get("sao_id"),
+            tyc_id=simbad_data.get("tyc_id"),
+            bd_id=simbad_data.get("bd_id"),
+            spectral_type=simbad_data.get("spectral_type"),
+            mag_v=simbad_data.get("mag_v"),
+            mag_b=simbad_data.get("mag_b"),
+            source="simbad",
+        )
+        db.add(star)
 
-    # Save all identifiers as aliases
-    for ident in simbad_data.get("identifiers", []):
-        catalog = ident.split(" ")[0] if " " in ident else "other"
-        db.add(StarAlias(source_id=source_id, alias=ident, catalog=catalog))
+        for ident in simbad_data.get("identifiers", []):
+            catalog = ident.split(" ")[0] if " " in ident else "other"
+            db.add(StarAlias(source_id=source_id, alias=ident, catalog=catalog))
 
-    await db.commit()
+        await db.commit()
+    except IntegrityError:
+        # Race condition: another request already inserted this star
+        await db.rollback()
+        logger.debug("Star %s already exists (race condition), skipping insert", source_id)
+
+
+def _validate_source_id(source_id: str):
+    """Validate Gaia DR3 source_id format."""
+    if not _SOURCE_ID_PATTERN.match(source_id):
+        raise HTTPException(status_code=400, detail="Invalid source_id format")
 
 
 @router.get("/{source_id}")
 async def get_star_name(source_id: str, db: AsyncSession = Depends(get_db)):
+    _validate_source_id(source_id)
+
     # 1. In-memory cache
     if source_id in _cache:
         name = _cache[source_id]
@@ -160,6 +199,7 @@ async def get_star_name(source_id: str, db: AsyncSession = Depends(get_db)):
     star = result.scalar_one_or_none()
     if star:
         _cache[source_id] = star.proper_name
+        _evict_cache_if_needed()
         if star.proper_name:
             return {"ProperName": star.proper_name}
         raise HTTPException(status_code=404, detail="Star name not found")
@@ -170,17 +210,21 @@ async def get_star_name(source_id: str, db: AsyncSession = Depends(get_db)):
         await _save_simbad_result(db, source_id, simbad_data)
         name = simbad_data.get("main_id")
         _cache[source_id] = name
+        _evict_cache_if_needed()
         if name:
             return {"ProperName": name}
 
     # 4. Cache negative result
     _cache[source_id] = None
+    _evict_cache_if_needed()
     raise HTTPException(status_code=404, detail="Star name not found")
 
 
 @router.get("/{source_id}/details")
 async def get_star_details(source_id: str, db: AsyncSession = Depends(get_db)):
     """Full star card with all catalog data and aliases."""
+    _validate_source_id(source_id)
+
     result = await db.execute(
         select(StarCatalog).where(StarCatalog.source_id == source_id)
     )

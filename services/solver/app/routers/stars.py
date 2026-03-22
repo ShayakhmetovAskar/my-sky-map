@@ -77,9 +77,11 @@ async def _lookup_simbad(source_id: str) -> Optional[dict]:
 
             result = simbad.query_object(query_id)
             if result is None or len(result) == 0:
-                # Fallback: try the other format
-                alt_id = f"HIP {source_id}" if "Gaia" in query_id else f"Gaia DR3 {source_id}"
-                result = simbad.query_object(alt_id)
+                # Fallback only makes sense if formats differ
+                if len(source_id) <= 6:
+                    # Already tried HIP, try Gaia
+                    result = simbad.query_object(f"Gaia DR3 {source_id}")
+                # Don't try HIP fallback for long IDs — HIP max 6 digits
                 if result is None or len(result) == 0:
                     return None
 
@@ -135,7 +137,7 @@ async def _lookup_simbad(source_id: str) -> Optional[dict]:
                         pass
                 elif ident.startswith("TYC "):
                     info["tyc_id"] = ident[4:]
-                elif ident.startswith("BD"):
+                elif ident.startswith("BD+") or ident.startswith("BD-"):
                     info["bd_id"] = ident
 
             # Spectral type (handle both old/new column names)
@@ -203,7 +205,15 @@ async def _save_simbad_result(db: AsyncSession, source_id: str, simbad_data: dic
         db.add(star)
 
         for ident in simbad_data.get("identifiers", []):
-            catalog = ident.split(" ")[0] if " " in ident else "other"
+            # Extract catalog prefix (handle BD+20, TYC 1234, etc.)
+            if ident.startswith("BD+") or ident.startswith("BD-"):
+                catalog = "BD"
+            elif ident.startswith("NAME "):
+                catalog = "NAME"
+            elif " " in ident:
+                catalog = ident.split(" ")[0]
+            else:
+                catalog = "other"
             db.add(StarAlias(source_id=source_id, alias=ident, catalog=catalog))
 
         await db.commit()

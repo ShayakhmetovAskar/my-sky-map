@@ -62,3 +62,22 @@ spec:
                 name: playground
                 port:
                   number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: skymap-frontend
+  namespace: skymap
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: skymap-app.afsh.space
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

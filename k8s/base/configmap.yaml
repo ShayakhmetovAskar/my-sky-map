@@ -9,4 +9,4 @@ data:
   MINIO_SECURE: "true"
   ZITADEL_ISSUER_URL: "https://skymap-auth.afsh.space"
   ZITADEL_AUDIENCE: ""
-  CORS_ORIGINS: "https://skymap-playground.afsh.space"
+  CORS_ORIGINS: "https://skymap-playground.afsh.space,https://skymap-app.afsh.space"

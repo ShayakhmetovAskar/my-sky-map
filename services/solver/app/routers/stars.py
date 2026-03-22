@@ -23,8 +23,12 @@ router = APIRouter(prefix="/stars", tags=["Stars"])
 # In-memory LRU cache: source_id → proper_name (or None for negative cache)
 _MAX_CACHE_SIZE = 10_000
 _cache: OrderedDict[str, Optional[str]] = OrderedDict()
+_cache_lock = asyncio.Lock()
 
-# Validate source_id: Gaia DR3 source_id is a positive integer (up to 19 digits)
+# Limit concurrent SIMBAD requests
+_simbad_semaphore = asyncio.Semaphore(10)
+
+# Validate source_id: Gaia DR3 source_id (up to 19 digits) or HIP ID (up to 6 digits)
 _SOURCE_ID_PATTERN = re.compile(r"^\d{1,19}$")
 
 SIMBAD_TIMEOUT = 10  # seconds
@@ -66,18 +70,48 @@ async def _lookup_simbad(source_id: str) -> Optional[dict]:
             simbad.add_votable_fields("ids", "sp", "flux(V)", "flux(B)")
             simbad.TIMEOUT = SIMBAD_TIMEOUT
 
-            result = simbad.query_object(f"Gaia DR3 {source_id}")
+            # Try Gaia DR3 first, then HIP for short IDs (HIP max 6 digits)
+            query_id = f"Gaia DR3 {source_id}"
+            if len(source_id) <= 6:
+                query_id = f"HIP {source_id}"
+
+            result = simbad.query_object(query_id)
             if result is None or len(result) == 0:
-                return None
+                # Fallback only makes sense if formats differ
+                if len(source_id) <= 6:
+                    # Already tried HIP, try Gaia
+                    result = simbad.query_object(f"Gaia DR3 {source_id}")
+                # Don't try HIP fallback for long IDs — HIP max 6 digits
+                if result is None or len(result) == 0:
+                    return None
 
             row = result[0]
-            main_id = str(row["MAIN_ID"]) if row["MAIN_ID"] else None
+            # Handle both old and new SIMBAD API column names
+            main_id = None
+            for col in ["MAIN_ID", "main_id"]:
+                if col in row.colnames:
+                    val = row[col]
+                    if val and str(val) != "--":
+                        main_id = str(val)
+                        break
 
             # Parse identifiers
-            ids_str = str(row.get("IDS", ""))
+            ids_str = ""
+            for col in ["IDS", "ids"]:
+                if col in row.colnames:
+                    ids_str = str(row[col])
+                    break
             identifiers = [s.strip() for s in ids_str.split("|") if s.strip()]
 
-            info = {"main_id": main_id, "identifiers": identifiers}
+            # Extract proper name from NAME identifiers (e.g. "NAME Sirius")
+            proper_name = None
+            for ident in identifiers:
+                if ident.startswith("NAME "):
+                    proper_name = ident[5:]
+                    break
+
+            # proper_name: IAU name if exists, otherwise SIMBAD main_id as display name
+            info = {"main_id": main_id, "proper_name": proper_name or main_id, "identifiers": identifiers}
 
             # Extract catalog IDs from identifiers
             for ident in identifiers:
@@ -103,42 +137,52 @@ async def _lookup_simbad(source_id: str) -> Optional[dict]:
                         pass
                 elif ident.startswith("TYC "):
                     info["tyc_id"] = ident[4:]
-                elif ident.startswith("BD"):
+                elif ident.startswith("BD+") or ident.startswith("BD-"):
                     info["bd_id"] = ident
 
-            # Spectral type
-            sp = row.get("SP_TYPE")
-            if sp and str(sp) != "--":
-                info["spectral_type"] = str(sp)
+            # Spectral type (handle both old/new column names)
+            for col in ["SP_TYPE", "sp_type"]:
+                if col in row.colnames:
+                    sp = row[col]
+                    if sp and str(sp) != "--" and str(sp) != "":
+                        info["spectral_type"] = str(sp)
+                    break
 
             # Magnitudes
-            flux_v = row.get("FLUX_V")
-            if flux_v and str(flux_v) != "--":
-                try:
-                    info["mag_v"] = float(flux_v)
-                except (ValueError, TypeError):
-                    pass
+            for col in ["FLUX_V", "flux_v"]:
+                if col in row.colnames:
+                    try:
+                        val = row[col]
+                        if val and str(val) != "--":
+                            info["mag_v"] = float(val)
+                    except (ValueError, TypeError):
+                        pass
+                    break
 
-            flux_b = row.get("FLUX_B")
-            if flux_b and str(flux_b) != "--":
-                try:
-                    info["mag_b"] = float(flux_b)
-                except (ValueError, TypeError):
-                    pass
+            for col in ["FLUX_B", "flux_b"]:
+                if col in row.colnames:
+                    try:
+                        val = row[col]
+                        if val and str(val) != "--":
+                            info["mag_b"] = float(val)
+                    except (ValueError, TypeError):
+                        pass
+                    break
 
             return info
         except Exception as e:
             logger.warning("SIMBAD query failed for %s: %s", source_id, e)
             return None
 
-    try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(_query),
-            timeout=SIMBAD_TIMEOUT + 5,
-        )
-    except asyncio.TimeoutError:
-        logger.warning("SIMBAD query timed out for %s", source_id)
-        return None
+    async with _simbad_semaphore:
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(_query),
+                timeout=SIMBAD_TIMEOUT + 5,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("SIMBAD query timed out for %s", source_id)
+            return None
 
 
 async def _save_simbad_result(db: AsyncSession, source_id: str, simbad_data: dict):
@@ -146,7 +190,7 @@ async def _save_simbad_result(db: AsyncSession, source_id: str, simbad_data: dic
     try:
         star = StarCatalog(
             source_id=source_id,
-            proper_name=simbad_data.get("main_id"),
+            proper_name=simbad_data.get("proper_name") or simbad_data.get("main_id"),
             hip_id=simbad_data.get("hip_id"),
             hd_id=simbad_data.get("hd_id"),
             hr_id=simbad_data.get("hr_id"),
@@ -161,14 +205,24 @@ async def _save_simbad_result(db: AsyncSession, source_id: str, simbad_data: dic
         db.add(star)
 
         for ident in simbad_data.get("identifiers", []):
-            catalog = ident.split(" ")[0] if " " in ident else "other"
+            # Extract catalog prefix (handle BD+20, TYC 1234, etc.)
+            if ident.startswith("BD+") or ident.startswith("BD-"):
+                catalog = "BD"
+            elif ident.startswith("NAME "):
+                catalog = "NAME"
+            elif " " in ident:
+                catalog = ident.split(" ")[0]
+            else:
+                catalog = "other"
             db.add(StarAlias(source_id=source_id, alias=ident, catalog=catalog))
 
         await db.commit()
     except IntegrityError:
-        # Race condition: another request already inserted this star
         await db.rollback()
         logger.debug("Star %s already exists (race condition), skipping insert", source_id)
+    except Exception as e:
+        await db.rollback()
+        logger.warning("Failed to save star %s: %s", source_id, e)
 
 
 def _validate_source_id(source_id: str):
@@ -182,12 +236,10 @@ async def get_star_name(source_id: str, db: AsyncSession = Depends(get_db)):
     _validate_source_id(source_id)
 
     # 1. In-memory cache (LRU: move to end on hit)
-    if source_id in _cache:
-        _cache.move_to_end(source_id)
-        name = _cache[source_id]
-        if name is not None:
-            return {"ProperName": name}
-        raise HTTPException(status_code=404, detail="Star name not found")
+    async with _cache_lock:
+        if source_id in _cache:
+            _cache.move_to_end(source_id)
+            return {"ProperName": _cache[source_id]}
 
     # 2. DB lookup
     result = await db.execute(
@@ -195,26 +247,24 @@ async def get_star_name(source_id: str, db: AsyncSession = Depends(get_db)):
     )
     star = result.scalar_one_or_none()
     if star:
-        _cache[source_id] = star.proper_name
-        _evict_cache_if_needed()
-        if star.proper_name:
-            return {"ProperName": star.proper_name}
-        raise HTTPException(status_code=404, detail="Star name not found")
+        name = star.proper_name or ""
+        async with _cache_lock:
+            _cache[source_id] = name
+            _evict_cache_if_needed()
+        return {"ProperName": name}
 
     # 3. SIMBAD fallback
     simbad_data = await _lookup_simbad(source_id)
     if simbad_data:
+        name = simbad_data.get("proper_name") or simbad_data.get("main_id") or ""
         await _save_simbad_result(db, source_id, simbad_data)
-        name = simbad_data.get("main_id")
-        _cache[source_id] = name
-        _evict_cache_if_needed()
-        if name:
-            return {"ProperName": name}
+        async with _cache_lock:
+            _cache[source_id] = name
+            _evict_cache_if_needed()
+        return {"ProperName": name}
 
-    # 4. Cache negative result
-    _cache[source_id] = None
-    _evict_cache_if_needed()
-    raise HTTPException(status_code=404, detail="Star name not found")
+    # 4. Not found anywhere — return empty, don't cache
+    return {"ProperName": ""}
 
 
 @router.get("/{source_id}/details")

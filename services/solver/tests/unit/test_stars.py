@@ -27,11 +27,12 @@ class TestGetStarName:
             assert res.status_code == 200
             assert res.json() == {"ProperName": "Sirius"}
 
-    async def test_negative_cache(self, client):
-        """Returns 404 for negatively cached source_id."""
-        with cache_entry("99999", None):
+    async def test_empty_cache(self, client):
+        """Returns empty string for cached source_id with no name."""
+        with cache_entry("99999", ""):
             res = await client.get("/stars/99999")
-            assert res.status_code == 404
+            assert res.status_code == 200
+            assert res.json() == {"ProperName": ""}
 
     async def test_invalid_source_id(self, client):
         """Returns 400 for invalid source_id format."""
@@ -39,12 +40,13 @@ class TestGetStarName:
         assert res.status_code == 400
 
     async def test_not_found(self, client):
-        """Returns 404 when star not in cache, DB, or SIMBAD."""
+        """Returns empty string when star not in cache, DB, or SIMBAD."""
         with patch("app.routers.stars._lookup_simbad", new_callable=AsyncMock, return_value=None):
             _cache.pop("77777777777", None)
             try:
                 res = await client.get("/stars/77777777777")
-                assert res.status_code == 404
+                assert res.status_code == 200
+                assert res.json() == {"ProperName": ""}
             finally:
                 _cache.pop("77777777777", None)
 
@@ -68,11 +70,12 @@ class TestGetStarName:
         finally:
             _cache.pop("11111111111", None)
 
-    async def test_simbad_fallback(self, client):
-        """Queries SIMBAD when not in cache or DB."""
+    async def test_simbad_fallback_with_name(self, client):
+        """Queries SIMBAD and returns proper name from NAME identifier."""
         simbad_result = {
             "main_id": "* alf CMa",
-            "identifiers": ["HIP 32349", "HD 48915"],
+            "proper_name": "Sirius",
+            "identifiers": ["NAME Sirius", "HIP 32349", "HD 48915"],
             "hip_id": 32349,
             "hd_id": 48915,
         }
@@ -81,9 +84,26 @@ class TestGetStarName:
             try:
                 res = await client.get("/stars/22222222222")
                 assert res.status_code == 200
-                assert res.json()["ProperName"] == "* alf CMa"
+                assert res.json()["ProperName"] == "Sirius"
             finally:
                 _cache.pop("22222222222", None)
+
+    async def test_simbad_fallback_no_proper_name(self, client):
+        """SIMBAD star without NAME → returns main_id as display name."""
+        simbad_result = {
+            "main_id": "* bet Ori",
+            "proper_name": "* bet Ori",
+            "identifiers": ["HIP 25336", "HD 34085"],
+            "hip_id": 25336,
+        }
+        with patch("app.routers.stars._lookup_simbad", new_callable=AsyncMock, return_value=simbad_result):
+            _cache.pop("33333333333333", None)
+            try:
+                res = await client.get("/stars/33333333333333")
+                assert res.status_code == 200
+                assert res.json()["ProperName"] == "* bet Ori"
+            finally:
+                _cache.pop("33333333333333", None)
 
 
 class TestGetStarDetails:

@@ -23,6 +23,10 @@ router = APIRouter(prefix="/stars", tags=["Stars"])
 # In-memory LRU cache: source_id → proper_name (or None for negative cache)
 _MAX_CACHE_SIZE = 10_000
 _cache: OrderedDict[str, Optional[str]] = OrderedDict()
+_cache_lock = asyncio.Lock()
+
+# Limit concurrent SIMBAD requests to avoid DDoS
+_simbad_semaphore = asyncio.Semaphore(3)
 
 # Validate source_id: Gaia DR3 source_id (up to 19 digits) or HIP ID (up to 6 digits)
 _SOURCE_ID_PATTERN = re.compile(r"^\d{1,19}$")
@@ -97,7 +101,14 @@ async def _lookup_simbad(source_id: str) -> Optional[dict]:
                     break
             identifiers = [s.strip() for s in ids_str.split("|") if s.strip()]
 
-            info = {"main_id": main_id, "identifiers": identifiers}
+            # Extract proper name from NAME identifiers (e.g. "NAME Sirius")
+            proper_name = None
+            for ident in identifiers:
+                if ident.startswith("NAME "):
+                    proper_name = ident[5:]
+                    break
+
+            info = {"main_id": proper_name or main_id, "proper_name": proper_name, "identifiers": identifiers}
 
             # Extract catalog IDs from identifiers
             for ident in identifiers:
@@ -160,14 +171,15 @@ async def _lookup_simbad(source_id: str) -> Optional[dict]:
             logger.warning("SIMBAD query failed for %s: %s", source_id, e)
             return None
 
-    try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(_query),
-            timeout=SIMBAD_TIMEOUT + 5,
-        )
-    except asyncio.TimeoutError:
-        logger.warning("SIMBAD query timed out for %s", source_id)
-        return None
+    async with _simbad_semaphore:
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(_query),
+                timeout=SIMBAD_TIMEOUT + 5,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("SIMBAD query timed out for %s", source_id)
+            return None
 
 
 async def _save_simbad_result(db: AsyncSession, source_id: str, simbad_data: dict):
@@ -175,7 +187,7 @@ async def _save_simbad_result(db: AsyncSession, source_id: str, simbad_data: dic
     try:
         star = StarCatalog(
             source_id=source_id,
-            proper_name=simbad_data.get("main_id"),
+            proper_name=simbad_data.get("proper_name") or simbad_data.get("main_id"),
             hip_id=simbad_data.get("hip_id"),
             hd_id=simbad_data.get("hd_id"),
             hr_id=simbad_data.get("hr_id"),
@@ -211,12 +223,13 @@ async def get_star_name(source_id: str, db: AsyncSession = Depends(get_db)):
     _validate_source_id(source_id)
 
     # 1. In-memory cache (LRU: move to end on hit)
-    if source_id in _cache:
-        _cache.move_to_end(source_id)
-        name = _cache[source_id]
-        if name is not None:
-            return {"ProperName": name}
-        raise HTTPException(status_code=404, detail="Star name not found")
+    async with _cache_lock:
+        if source_id in _cache:
+            _cache.move_to_end(source_id)
+            name = _cache[source_id]
+            if name is not None:
+                return {"ProperName": name}
+            raise HTTPException(status_code=404, detail="Star name not found")
 
     # 2. DB lookup
     result = await db.execute(
@@ -224,8 +237,9 @@ async def get_star_name(source_id: str, db: AsyncSession = Depends(get_db)):
     )
     star = result.scalar_one_or_none()
     if star:
-        _cache[source_id] = star.proper_name
-        _evict_cache_if_needed()
+        async with _cache_lock:
+            _cache[source_id] = star.proper_name
+            _evict_cache_if_needed()
         if star.proper_name:
             return {"ProperName": star.proper_name}
         raise HTTPException(status_code=404, detail="Star name not found")
@@ -235,14 +249,16 @@ async def get_star_name(source_id: str, db: AsyncSession = Depends(get_db)):
     if simbad_data:
         await _save_simbad_result(db, source_id, simbad_data)
         name = simbad_data.get("main_id")
-        _cache[source_id] = name
-        _evict_cache_if_needed()
+        async with _cache_lock:
+            _cache[source_id] = name
+            _evict_cache_if_needed()
         if name:
             return {"ProperName": name}
 
     # 4. Cache negative result
-    _cache[source_id] = None
-    _evict_cache_if_needed()
+    async with _cache_lock:
+        _cache[source_id] = None
+        _evict_cache_if_needed()
     raise HTTPException(status_code=404, detail="Star name not found")
 
 

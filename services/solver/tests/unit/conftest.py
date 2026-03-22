@@ -73,9 +73,11 @@ async def client(mock_storage):
 
     # Cleanup
     async with test_engine.begin() as conn:
-        await conn.execute(text("TRUNCATE tasks, submissions CASCADE"))
+        await conn.execute(text("TRUNCATE tasks, submissions, star_aliases, star_catalog CASCADE"))
 
     app.dependency_overrides.clear()
     await test_engine.dispose()
+
+
 
 

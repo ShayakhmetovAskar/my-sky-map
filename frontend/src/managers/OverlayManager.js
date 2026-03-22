@@ -10,20 +10,31 @@ export default class OverlayManager {
 
     async overlay(task_id) {
         try {
-            // 1. Получаем данные задачи
-            const response = await fetch(`/api/task/${task_id}`);
+            // 1. Получаем данные задачи через solver API
+            const apiUrl = import.meta.env.VITE_SOLVER_API_URL || '/api/v1';
+            const token = sessionStorage.getItem('skymap_access_token');
+            const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+            const response = await fetch(`${apiUrl}/tasks/${task_id}`, { headers });
             if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
 
-
             const taskData = await response.json();
-
             const result = taskData.result;
+            if (!result) throw new Error('Task has no result');
 
-            // 2. Создаем геометрию на основе mesh
-            const geometry = this.createMeshGeometry(result.mesh);
+            // 2. Загружаем mesh данные (из presigned URL или inline)
+            let meshData = result.mesh;
+            if (result.mesh_json_url) {
+                const meshResponse = await fetch(result.mesh_json_url);
+                meshData = await meshResponse.json();
+            }
 
-            // 3. Загружаем текстуру
-            const texture = await this.loadTexture(taskData.file_path);
+            const geometry = this.createMeshGeometry(meshData);
+
+            // 3. Загружаем текстуру (из presigned URL)
+            const textureUrl = result.original_image_url || result.annotated_image_url;
+            if (!textureUrl) throw new Error('No image URL in result');
+            const texture = await this.loadTexture(textureUrl);
 
             // 4. Создаем материал и меш
             const material = new THREE.MeshBasicMaterial({
@@ -210,10 +221,10 @@ export default class OverlayManager {
         return geometry;
     }
 
-    async loadTexture(file_path) {
+    async loadTexture(url) {
         return new Promise((resolve, reject) => {
             this.textureLoader.load(
-                `/api/uploads/${file_path}`,
+                url,
                 texture => {
                     // Улучшенные настройки текстуры
                     texture.colorSpace = THREE.SRGBColorSpace; // Правильное цветовое пространство

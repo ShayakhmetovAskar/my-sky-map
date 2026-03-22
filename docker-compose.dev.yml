@@ -6,17 +6,6 @@ services:
       dockerfile: Dockerfile
     container_name: vite_frontend_dev
 
-  # --- Static Astro Data (legacy backend) ---
-  backend:
-    build: ./backend
-    container_name: fastapi_backend_dev
-    env_file:
-      - ./backend/.env
-    volumes:
-      - ./backend:/app
-      - ${data_root}:/data:ro
-    command: uvicorn src.server:app --host 0.0.0.0 --port 8000
-
   # --- Solver API ---
   solver-api:
     build: ./services/solver
@@ -123,7 +112,6 @@ services:
     ports:
       - "8889:80"
     depends_on:
-      - backend
       - frontend
       - solver-api
 

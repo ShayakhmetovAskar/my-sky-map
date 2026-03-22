@@ -17,9 +17,12 @@ export const API_CONFIG = {
         }
     },
     
-    // Star Names API
+    // Star Names API (served by solver API)
     STAR_NAMES: {
-        baseUrl: 'https://skymapdev.afsh.space/api/star'
+        get baseUrl() {
+            const solverUrl = import.meta.env.VITE_SOLVER_API_URL || '/api/v1';
+            return `${solverUrl}/stars`;
+        }
     },
     
     // Common configuration

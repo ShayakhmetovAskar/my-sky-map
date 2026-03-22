@@ -70,20 +70,19 @@ async def _lookup_simbad(source_id: str) -> Optional[dict]:
             simbad.add_votable_fields("ids", "sp", "flux(V)", "flux(B)")
             simbad.TIMEOUT = SIMBAD_TIMEOUT
 
-            # Try Gaia DR3 first, then HIP for short IDs (HIP max 6 digits)
-            query_id = f"Gaia DR3 {source_id}"
+            # Build query chain based on source_id length
             if len(source_id) <= 6:
-                query_id = f"HIP {source_id}"
+                queries = [f"HIP {source_id}", f"Gaia DR3 {source_id}", f"Gaia DR2 {source_id}"]
+            else:
+                queries = [f"Gaia DR3 {source_id}", f"Gaia DR2 {source_id}"]
 
-            result = simbad.query_object(query_id)
+            result = None
+            for q in queries:
+                result = simbad.query_object(q)
+                if result is not None and len(result) > 0:
+                    break
             if result is None or len(result) == 0:
-                # Fallback only makes sense if formats differ
-                if len(source_id) <= 6:
-                    # Already tried HIP, try Gaia
-                    result = simbad.query_object(f"Gaia DR3 {source_id}")
-                # Don't try HIP fallback for long IDs — HIP max 6 digits
-                if result is None or len(result) == 0:
-                    return None
+                return None
 
             row = result[0]
             # Handle both old and new SIMBAD API column names

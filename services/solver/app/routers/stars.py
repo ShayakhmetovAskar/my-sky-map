@@ -24,7 +24,7 @@ router = APIRouter(prefix="/stars", tags=["Stars"])
 _MAX_CACHE_SIZE = 10_000
 _cache: OrderedDict[str, Optional[str]] = OrderedDict()
 
-# Validate source_id: Gaia DR3 source_id is a positive integer (up to 19 digits)
+# Validate source_id: Gaia DR3 source_id (up to 19 digits) or HIP ID (up to 6 digits)
 _SOURCE_ID_PATTERN = re.compile(r"^\d{1,19}$")
 
 SIMBAD_TIMEOUT = 10  # seconds
@@ -66,15 +66,35 @@ async def _lookup_simbad(source_id: str) -> Optional[dict]:
             simbad.add_votable_fields("ids", "sp", "flux(V)", "flux(B)")
             simbad.TIMEOUT = SIMBAD_TIMEOUT
 
-            result = simbad.query_object(f"Gaia DR3 {source_id}")
+            # Try Gaia DR3 first, then HIP for short IDs
+            query_id = f"Gaia DR3 {source_id}"
+            if len(source_id) < 10:
+                query_id = f"HIP {source_id}"
+
+            result = simbad.query_object(query_id)
             if result is None or len(result) == 0:
-                return None
+                # Fallback: try the other format
+                alt_id = f"HIP {source_id}" if "Gaia" in query_id else f"Gaia DR3 {source_id}"
+                result = simbad.query_object(alt_id)
+                if result is None or len(result) == 0:
+                    return None
 
             row = result[0]
-            main_id = str(row["MAIN_ID"]) if row["MAIN_ID"] else None
+            # Handle both old and new SIMBAD API column names
+            main_id = None
+            for col in ["MAIN_ID", "main_id"]:
+                if col in row.colnames:
+                    val = row[col]
+                    if val and str(val) != "--":
+                        main_id = str(val)
+                        break
 
             # Parse identifiers
-            ids_str = str(row.get("IDS", ""))
+            ids_str = ""
+            for col in ["IDS", "ids"]:
+                if col in row.colnames:
+                    ids_str = str(row[col])
+                    break
             identifiers = [s.strip() for s in ids_str.split("|") if s.strip()]
 
             info = {"main_id": main_id, "identifiers": identifiers}
@@ -106,25 +126,34 @@ async def _lookup_simbad(source_id: str) -> Optional[dict]:
                 elif ident.startswith("BD"):
                     info["bd_id"] = ident
 
-            # Spectral type
-            sp = row.get("SP_TYPE")
-            if sp and str(sp) != "--":
-                info["spectral_type"] = str(sp)
+            # Spectral type (handle both old/new column names)
+            for col in ["SP_TYPE", "sp_type"]:
+                if col in row.colnames:
+                    sp = row[col]
+                    if sp and str(sp) != "--" and str(sp) != "":
+                        info["spectral_type"] = str(sp)
+                    break
 
             # Magnitudes
-            flux_v = row.get("FLUX_V")
-            if flux_v and str(flux_v) != "--":
-                try:
-                    info["mag_v"] = float(flux_v)
-                except (ValueError, TypeError):
-                    pass
+            for col in ["FLUX_V", "flux_v"]:
+                if col in row.colnames:
+                    try:
+                        val = row[col]
+                        if val and str(val) != "--":
+                            info["mag_v"] = float(val)
+                    except (ValueError, TypeError):
+                        pass
+                    break
 
-            flux_b = row.get("FLUX_B")
-            if flux_b and str(flux_b) != "--":
-                try:
-                    info["mag_b"] = float(flux_b)
-                except (ValueError, TypeError):
-                    pass
+            for col in ["FLUX_B", "flux_b"]:
+                if col in row.colnames:
+                    try:
+                        val = row[col]
+                        if val and str(val) != "--":
+                            info["mag_b"] = float(val)
+                    except (ValueError, TypeError):
+                        pass
+                    break
 
             return info
         except Exception as e:

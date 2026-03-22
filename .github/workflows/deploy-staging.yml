@@ -61,8 +61,26 @@ jobs:
           MINIO_BUCKET: skymap
         run: python -m pytest tests/unit tests/scenario -v --tb=short
 
-  deploy-backend:
+  setup-k8s:
     needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: ./.github/actions/setup-kubectl
+        with:
+          sa-key: ${{ secrets.YC_SA_KEY_JSON }}
+          cluster-id: ${{ env.K8S_CLUSTER_ID }}
+
+      - name: Apply shared manifests
+        run: |
+          kubectl apply -f k8s/base/namespace.yaml
+          kubectl apply -f k8s/base/configmap.yaml
+          kubectl apply -f k8s/base/ingress.yaml
+
+  deploy-backend:
+    needs: setup-k8s
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,7 +90,7 @@ jobs:
         with:
           yc-sa-json-credentials: ${{ secrets.YC_SA_KEY_JSON }}
 
-      - name: Build and push solver image
+      - name: Build and push
         run: |
           docker build \
             -t ${{ env.REGISTRY }}/skymap-solver:${{ github.sha }} \
@@ -88,7 +106,6 @@ jobs:
 
       - name: Deploy
         run: |
-          kubectl apply -f k8s/base/namespace.yaml -f k8s/base/configmap.yaml
           kubectl apply -f k8s/base/postgres/ -f k8s/base/solver-api/ -f k8s/base/solver-worker/
           kubectl set image deployment/solver-api \
             solver-api=${{ env.REGISTRY }}/skymap-solver:${{ github.sha }} \
@@ -103,7 +120,7 @@ jobs:
         run: curl -sf https://skymap.afsh.space/api/v1/healthcheck
 
   deploy-playground:
-    needs: test
+    needs: setup-k8s
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -129,14 +146,17 @@ jobs:
 
       - name: Deploy
         run: |
-          kubectl apply -f k8s/base/namespace.yaml -f k8s/base/playground/
+          kubectl apply -f k8s/base/playground/
           kubectl set image deployment/playground \
             playground=${{ env.REGISTRY }}/skymap-playground:${{ github.sha }} \
             -n ${{ env.K8S_NAMESPACE }}
           kubectl rollout status deployment/playground -n ${{ env.K8S_NAMESPACE }} --timeout=120s
 
+      - name: Verify
+        run: curl -sf https://skymap-playground.afsh.space/
+
   deploy-frontend:
-    needs: test
+    needs: setup-k8s
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -165,11 +185,11 @@ jobs:
 
       - name: Deploy
         run: |
-          kubectl apply -f k8s/base/namespace.yaml -f k8s/base/frontend/
+          kubectl apply -f k8s/base/frontend/
           kubectl set image deployment/frontend \
             frontend=${{ env.REGISTRY }}/skymap-frontend:${{ github.sha }} \
             -n ${{ env.K8S_NAMESPACE }}
           kubectl rollout status deployment/frontend -n ${{ env.K8S_NAMESPACE }} --timeout=120s
 
-      - name: Apply ingress
-        run: kubectl apply -f k8s/base/ingress.yaml
+      - name: Verify
+        run: curl -sf https://skymap-app.afsh.space/

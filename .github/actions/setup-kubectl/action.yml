@@ -23,7 +23,7 @@ runs:
       env:
         SA_KEY: ${{ inputs.sa-key }}
       run: |
+        trap 'rm -f sa-key.json' EXIT
         printenv SA_KEY > sa-key.json
         yc config set service-account-key sa-key.json
         yc managed-kubernetes cluster get-credentials ${{ inputs.cluster-id }} --external --force
-        rm sa-key.json

@@ -218,9 +218,11 @@ async def _save_simbad_result(db: AsyncSession, source_id: str, simbad_data: dic
 
         await db.commit()
     except IntegrityError:
-        # Race condition: another request already inserted this star
         await db.rollback()
         logger.debug("Star %s already exists (race condition), skipping insert", source_id)
+    except Exception as e:
+        await db.rollback()
+        logger.warning("Failed to save star %s: %s", source_id, e)
 
 
 def _validate_source_id(source_id: str):

@@ -70,9 +70,9 @@ async def _lookup_simbad(source_id: str) -> Optional[dict]:
             simbad.add_votable_fields("ids", "sp", "flux(V)", "flux(B)")
             simbad.TIMEOUT = SIMBAD_TIMEOUT
 
-            # Try Gaia DR3 first, then HIP for short IDs
+            # Try Gaia DR3 first, then HIP for short IDs (HIP max 6 digits)
             query_id = f"Gaia DR3 {source_id}"
-            if len(source_id) < 10:
+            if len(source_id) <= 6:
                 query_id = f"HIP {source_id}"
 
             result = simbad.query_object(query_id)
@@ -108,7 +108,7 @@ async def _lookup_simbad(source_id: str) -> Optional[dict]:
                     proper_name = ident[5:]
                     break
 
-            info = {"main_id": proper_name or main_id, "proper_name": proper_name, "identifiers": identifiers}
+            info = {"main_id": main_id, "proper_name": proper_name, "identifiers": identifiers}
 
             # Extract catalog IDs from identifiers
             for ident in identifiers:
@@ -187,7 +187,7 @@ async def _save_simbad_result(db: AsyncSession, source_id: str, simbad_data: dic
     try:
         star = StarCatalog(
             source_id=source_id,
-            proper_name=simbad_data.get("proper_name") or simbad_data.get("main_id"),
+            proper_name=simbad_data.get("proper_name"),
             hip_id=simbad_data.get("hip_id"),
             hd_id=simbad_data.get("hd_id"),
             hr_id=simbad_data.get("hr_id"),
@@ -248,7 +248,7 @@ async def get_star_name(source_id: str, db: AsyncSession = Depends(get_db)):
     simbad_data = await _lookup_simbad(source_id)
     if simbad_data:
         await _save_simbad_result(db, source_id, simbad_data)
-        name = simbad_data.get("main_id")
+        name = simbad_data.get("proper_name")
         async with _cache_lock:
             _cache[source_id] = name
             _evict_cache_if_needed()

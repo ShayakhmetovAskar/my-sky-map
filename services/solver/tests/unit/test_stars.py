@@ -68,11 +68,12 @@ class TestGetStarName:
         finally:
             _cache.pop("11111111111", None)
 
-    async def test_simbad_fallback(self, client):
-        """Queries SIMBAD when not in cache or DB."""
+    async def test_simbad_fallback_with_name(self, client):
+        """Queries SIMBAD and returns proper name from NAME identifier."""
         simbad_result = {
             "main_id": "* alf CMa",
-            "identifiers": ["HIP 32349", "HD 48915"],
+            "proper_name": "Sirius",
+            "identifiers": ["NAME Sirius", "HIP 32349", "HD 48915"],
             "hip_id": 32349,
             "hd_id": 48915,
         }
@@ -81,9 +82,25 @@ class TestGetStarName:
             try:
                 res = await client.get("/stars/22222222222")
                 assert res.status_code == 200
-                assert res.json()["ProperName"] == "* alf CMa"
+                assert res.json()["ProperName"] == "Sirius"
             finally:
                 _cache.pop("22222222222", None)
+
+    async def test_simbad_fallback_no_name(self, client):
+        """SIMBAD star without NAME → 404 (main_id is not a proper name)."""
+        simbad_result = {
+            "main_id": "* bet Ori",
+            "proper_name": None,
+            "identifiers": ["HIP 25336", "HD 34085"],
+            "hip_id": 25336,
+        }
+        with patch("app.routers.stars._lookup_simbad", new_callable=AsyncMock, return_value=simbad_result):
+            _cache.pop("33333333333333", None)
+            try:
+                res = await client.get("/stars/33333333333333")
+                assert res.status_code == 404
+            finally:
+                _cache.pop("33333333333333", None)
 
 
 class TestGetStarDetails:

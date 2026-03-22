@@ -86,11 +86,11 @@ class TestGetStarName:
             finally:
                 _cache.pop("22222222222", None)
 
-    async def test_simbad_fallback_no_name(self, client):
-        """SIMBAD star without NAME → 404 (main_id is not a proper name)."""
+    async def test_simbad_fallback_no_proper_name(self, client):
+        """SIMBAD star without NAME → returns main_id as display name."""
         simbad_result = {
             "main_id": "* bet Ori",
-            "proper_name": None,
+            "proper_name": "* bet Ori",
             "identifiers": ["HIP 25336", "HD 34085"],
             "hip_id": 25336,
         }
@@ -98,7 +98,8 @@ class TestGetStarName:
             _cache.pop("33333333333333", None)
             try:
                 res = await client.get("/stars/33333333333333")
-                assert res.status_code == 404
+                assert res.status_code == 200
+                assert res.json()["ProperName"] == "* bet Ori"
             finally:
                 _cache.pop("33333333333333", None)
 

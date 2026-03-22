@@ -25,8 +25,8 @@ _MAX_CACHE_SIZE = 10_000
 _cache: OrderedDict[str, Optional[str]] = OrderedDict()
 _cache_lock = asyncio.Lock()
 
-# Limit concurrent SIMBAD requests to avoid DDoS
-_simbad_semaphore = asyncio.Semaphore(3)
+# Limit concurrent SIMBAD requests
+_simbad_semaphore = asyncio.Semaphore(10)
 
 # Validate source_id: Gaia DR3 source_id (up to 19 digits) or HIP ID (up to 6 digits)
 _SOURCE_ID_PATTERN = re.compile(r"^\d{1,19}$")
@@ -108,7 +108,8 @@ async def _lookup_simbad(source_id: str) -> Optional[dict]:
                     proper_name = ident[5:]
                     break
 
-            info = {"main_id": main_id, "proper_name": proper_name, "identifiers": identifiers}
+            # proper_name: IAU name if exists, otherwise SIMBAD main_id as display name
+            info = {"main_id": main_id, "proper_name": proper_name or main_id, "identifiers": identifiers}
 
             # Extract catalog IDs from identifiers
             for ident in identifiers:
@@ -187,7 +188,7 @@ async def _save_simbad_result(db: AsyncSession, source_id: str, simbad_data: dic
     try:
         star = StarCatalog(
             source_id=source_id,
-            proper_name=simbad_data.get("proper_name"),
+            proper_name=simbad_data.get("proper_name") or simbad_data.get("main_id"),
             hip_id=simbad_data.get("hip_id"),
             hd_id=simbad_data.get("hd_id"),
             hr_id=simbad_data.get("hr_id"),
@@ -226,10 +227,7 @@ async def get_star_name(source_id: str, db: AsyncSession = Depends(get_db)):
     async with _cache_lock:
         if source_id in _cache:
             _cache.move_to_end(source_id)
-            name = _cache[source_id]
-            if name is not None:
-                return {"ProperName": name}
-            raise HTTPException(status_code=404, detail="Star name not found")
+            return {"ProperName": _cache[source_id]}
 
     # 2. DB lookup
     result = await db.execute(
@@ -237,29 +235,24 @@ async def get_star_name(source_id: str, db: AsyncSession = Depends(get_db)):
     )
     star = result.scalar_one_or_none()
     if star:
+        name = star.proper_name or ""
         async with _cache_lock:
-            _cache[source_id] = star.proper_name
+            _cache[source_id] = name
             _evict_cache_if_needed()
-        if star.proper_name:
-            return {"ProperName": star.proper_name}
-        raise HTTPException(status_code=404, detail="Star name not found")
+        return {"ProperName": name}
 
     # 3. SIMBAD fallback
     simbad_data = await _lookup_simbad(source_id)
     if simbad_data:
+        name = simbad_data.get("proper_name") or simbad_data.get("main_id") or ""
         await _save_simbad_result(db, source_id, simbad_data)
-        name = simbad_data.get("proper_name")
         async with _cache_lock:
             _cache[source_id] = name
             _evict_cache_if_needed()
-        if name:
-            return {"ProperName": name}
+        return {"ProperName": name}
 
-    # 4. Cache negative result
-    async with _cache_lock:
-        _cache[source_id] = None
-        _evict_cache_if_needed()
-    raise HTTPException(status_code=404, detail="Star name not found")
+    # 4. Not found anywhere — return empty, don't cache
+    return {"ProperName": ""}
 
 
 @router.get("/{source_id}/details")

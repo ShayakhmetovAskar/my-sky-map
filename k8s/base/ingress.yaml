@@ -43,3 +43,22 @@ spec:
                 name: zitadel
                 port:
                   number: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: skymap-playground
+  namespace: skymap
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: skymap-playground.afsh.space
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: playground
+                port:
+                  number: 80

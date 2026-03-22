@@ -123,6 +123,8 @@ async function handleCallback(code, state) {
     const data = await res.json()
     if (!res.ok) throw new Error(data.error_description || data.error)
     storeToken(data.access_token, data.expires_in)
+    sessionStorage.removeItem('pkce_verifier')
+    sessionStorage.removeItem('pkce_state')
     return true
   } catch (err) {
     console.error('Token exchange failed:', err.message)

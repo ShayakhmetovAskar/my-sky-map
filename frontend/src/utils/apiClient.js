@@ -22,7 +22,6 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401) {
       const { logout } = useAuth()
       logout()
-      window.location.href = '/'
     }
     return Promise.reject(error)
   }

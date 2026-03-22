@@ -73,9 +73,19 @@ async def client(mock_storage):
 
     # Cleanup
     async with test_engine.begin() as conn:
-        await conn.execute(text("TRUNCATE tasks, submissions CASCADE"))
+        await conn.execute(text("TRUNCATE tasks, submissions, star_aliases, star_catalog CASCADE"))
 
     app.dependency_overrides.clear()
+    await test_engine.dispose()
+
+
+@pytest.fixture
+async def db_session(client):
+    """Direct DB session for inserting test data."""
+    test_engine = create_async_engine(TEST_DB_URL, echo=False)
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    async with session_factory() as session:
+        yield session
     await test_engine.dispose()
 
 

@@ -28,28 +28,10 @@ export default defineConfig(({mode}) => {
                     target: 'https://storage.yandexcloud.net/skymap-static-data',
                     changeOrigin: true,
                 },
-                '/api': {
-                    target: 'https://skymapdev.afsh.space',
+                '/api/v1': {
+                    target: 'http://localhost:8001',
                     changeOrigin: true,
-                    configure: (proxy, options) => {
-                        proxy.on('proxyReq', (proxyReq, req) => {
-                            console.log(
-                                '[proxyReq]',
-                                req.method,
-                                req.url,
-                                '→',
-                                options.target
-                            )
-                        })
-                        proxy.on('proxyRes', (proxyRes, req, res) => {
-                            console.log(
-                                '[proxyRes]',
-                                req.url,
-                                'status:',
-                                proxyRes.statusCode
-                            )
-                        })
-                    }
+                    rewrite: (path) => path.replace(/^\/api\/v1/, ''),
                 }
             }
         },

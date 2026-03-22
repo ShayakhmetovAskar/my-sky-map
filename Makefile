@@ -77,14 +77,20 @@ test-deps:
 	@$(COMPOSE) up -d postgres minio
 	@$(COMPOSE) exec -T postgres psql -U skymap_user -d skymap_db -c "CREATE DATABASE skymap_test" 2>/dev/null || true
 
+# --- Frontend ---
+up-frontend:
+	cd frontend && npm run dev &
+
 # --- Full stack ---
 up-all:
 	$(AUTH_COMPOSE) up -d
 	$(COMPOSE) up -d --build
+	$(PLAYGROUND_COMPOSE) up -d
+	@echo "Run 'make up-frontend' to start Vue dev server on http://localhost:4000"
 
 # --- Cleanup ---
 clean:
 	$(COMPOSE) down -v --remove-orphans
 	$(AUTH_COMPOSE) down -v --remove-orphans
 
-.PHONY: up down logs logs-worker restart ps db-shell migrate migration up-auth reset-auth down-auth logs-auth seed-auth up-playground down-playground test test-unit test-scenario test-deps up-all clean
+.PHONY: up down logs logs-worker restart ps db-shell migrate migration up-auth reset-auth down-auth logs-auth seed-auth up-playground down-playground up-frontend test test-unit test-scenario test-deps up-all clean

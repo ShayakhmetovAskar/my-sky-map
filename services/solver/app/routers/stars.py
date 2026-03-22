@@ -4,8 +4,7 @@ import asyncio
 import json
 import logging
 import re
-import signal
-from functools import lru_cache
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
@@ -23,7 +22,7 @@ router = APIRouter(prefix="/stars", tags=["Stars"])
 
 # In-memory LRU cache: source_id → proper_name (or None for negative cache)
 _MAX_CACHE_SIZE = 10_000
-_cache: dict[str, Optional[str]] = {}
+_cache: OrderedDict[str, Optional[str]] = OrderedDict()
 
 # Validate source_id: Gaia DR3 source_id is a positive integer (up to 19 digits)
 _SOURCE_ID_PATTERN = re.compile(r"^\d{1,19}$")
@@ -47,12 +46,9 @@ _seed_cache()
 
 
 def _evict_cache_if_needed():
-    """Remove oldest entries if cache exceeds limit."""
-    if len(_cache) > _MAX_CACHE_SIZE:
-        excess = len(_cache) - _MAX_CACHE_SIZE
-        keys_to_remove = list(_cache.keys())[:excess]
-        for k in keys_to_remove:
-            del _cache[k]
+    """Remove least recently used entries if cache exceeds limit."""
+    while len(_cache) > _MAX_CACHE_SIZE:
+        _cache.popitem(last=False)  # Remove oldest (front of OrderedDict)
 
 
 async def _lookup_simbad(source_id: str) -> Optional[dict]:
@@ -185,8 +181,9 @@ def _validate_source_id(source_id: str):
 async def get_star_name(source_id: str, db: AsyncSession = Depends(get_db)):
     _validate_source_id(source_id)
 
-    # 1. In-memory cache
+    # 1. In-memory cache (LRU: move to end on hit)
     if source_id in _cache:
+        _cache.move_to_end(source_id)
         name = _cache[source_id]
         if name is not None:
             return {"ProperName": name}

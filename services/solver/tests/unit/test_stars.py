@@ -42,8 +42,11 @@ class TestGetStarName:
         """Returns 404 when star not in cache, DB, or SIMBAD."""
         with patch("app.routers.stars._lookup_simbad", new_callable=AsyncMock, return_value=None):
             _cache.pop("77777777777", None)
-            res = await client.get("/stars/77777777777")
-            assert res.status_code == 404
+            try:
+                res = await client.get("/stars/77777777777")
+                assert res.status_code == 404
+            finally:
+                _cache.pop("77777777777", None)
 
     async def test_from_db(self, client):
         """Returns star name from DB when not in cache."""
@@ -51,7 +54,6 @@ class TestGetStarName:
         from app.dependencies import get_db
         from app.main import app
 
-        # Insert via the overridden DB session
         override = app.dependency_overrides[get_db]
         async for session in override():
             star = StarCatalog(source_id="11111111111", proper_name="Teststar", source="test")
@@ -59,9 +61,12 @@ class TestGetStarName:
             await session.commit()
 
         _cache.pop("11111111111", None)
-        res = await client.get("/stars/11111111111")
-        assert res.status_code == 200
-        assert res.json() == {"ProperName": "Teststar"}
+        try:
+            res = await client.get("/stars/11111111111")
+            assert res.status_code == 200
+            assert res.json() == {"ProperName": "Teststar"}
+        finally:
+            _cache.pop("11111111111", None)
 
     async def test_simbad_fallback(self, client):
         """Queries SIMBAD when not in cache or DB."""
@@ -73,9 +78,12 @@ class TestGetStarName:
         }
         with patch("app.routers.stars._lookup_simbad", new_callable=AsyncMock, return_value=simbad_result):
             _cache.pop("22222222222", None)
-            res = await client.get("/stars/22222222222")
-            assert res.status_code == 200
-            assert res.json()["ProperName"] == "* alf CMa"
+            try:
+                res = await client.get("/stars/22222222222")
+                assert res.status_code == 200
+                assert res.json()["ProperName"] == "* alf CMa"
+            finally:
+                _cache.pop("22222222222", None)
 
 
 class TestGetStarDetails:

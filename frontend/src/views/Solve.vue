@@ -109,14 +109,17 @@ const handleFileUpload = (event) => {
     file.value = event.target.files[0]
 }
 
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/fits']
+const ALLOWED_EXTENSIONS = /\.(jpg|jpeg|png|fits|fit)$/i
+
 const handleDrop = (event) => {
     event.preventDefault()
     isDragging.value = false
     const droppedFile = event.dataTransfer.files[0]
-    if (droppedFile) {
+    if (droppedFile && (ALLOWED_TYPES.includes(droppedFile.type) || ALLOWED_EXTENSIONS.test(droppedFile.name))) {
         file.value = droppedFile
     } else {
-        error.value = 'Please drop an image file.'
+        error.value = 'Please drop an image file (JPEG, PNG, or FITS).'
     }
 }
 
@@ -140,7 +143,10 @@ const uploadImage = async () => {
     try {
         // Step 1: Create submission
         uploadStatus.value = 'Creating submission...'
-        const contentType = file.value.type || 'image/jpeg'
+        let contentType = file.value.type
+        if (!contentType || contentType === 'application/octet-stream') {
+            contentType = /\.(fits|fit)$/i.test(file.value.name) ? 'application/fits' : 'image/jpeg'
+        }
         const { data: submission } = await apiClient.post('/submissions', {
             filename: file.value.name,
             content_type: contentType,
@@ -149,11 +155,12 @@ const uploadImage = async () => {
 
         // Step 2: Upload file to presigned URL
         uploadStatus.value = 'Uploading file...'
-        await fetch(submission.upload_url, {
+        const uploadRes = await fetch(submission.upload_url, {
             method: 'PUT',
             headers: { 'Content-Type': contentType },
             body: file.value,
         })
+        if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status} ${uploadRes.statusText}`)
 
         // Step 3: Confirm upload
         uploadStatus.value = 'Confirming...'

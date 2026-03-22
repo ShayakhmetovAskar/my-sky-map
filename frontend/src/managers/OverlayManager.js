@@ -1,18 +1,20 @@
 import * as THREE from 'three';
+import { useAuth } from '@/composables/useAuth';
 
 export default class OverlayManager {
     constructor(scene, controls) {
         this.scene = scene;
         this.controls = controls;
         this.textureLoader = new THREE.TextureLoader();
-        this.overlays = {}; // Объект для хранения мешей по task_id**
+        this.overlays = {};
     }
 
     async overlay(task_id) {
         try {
             // 1. Получаем данные задачи через solver API
             const apiUrl = import.meta.env.VITE_SOLVER_API_URL || '/api/v1';
-            const token = sessionStorage.getItem('skymap_access_token');
+            const { getToken } = useAuth();
+            const token = getToken();
             const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
             const response = await fetch(`${apiUrl}/tasks/${task_id}`, { headers });
@@ -26,6 +28,7 @@ export default class OverlayManager {
             let meshData = result.mesh;
             if (result.mesh_json_url) {
                 const meshResponse = await fetch(result.mesh_json_url);
+                if (!meshResponse.ok) throw new Error(`Mesh fetch error: ${meshResponse.status}`);
                 meshData = await meshResponse.json();
             }
 

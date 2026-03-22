@@ -24,8 +24,14 @@ kind: Ingress
 metadata:
   name: skymap-auth
   namespace: skymap
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPCS"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - skymap-auth.afsh.space
+      secretName: cloudflare-origin-tls
   rules:
     - host: skymap-auth.afsh.space
       http:

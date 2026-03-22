@@ -13,10 +13,36 @@ spec:
       labels:
         app: zitadel
     spec:
+      enableServiceLinks: false
+      initContainers:
+        - name: zitadel-init-schema
+          image: ghcr.io/zitadel/zitadel:latest
+          args: ["init", "zitadel"]
+          env:
+            - name: ZITADEL_DATABASE_POSTGRES_HOST
+              value: zitadel-db
+            - name: ZITADEL_DATABASE_POSTGRES_PORT
+              value: "5432"
+            - name: ZITADEL_DATABASE_POSTGRES_DATABASE
+              value: zitadel
+            - name: ZITADEL_DATABASE_POSTGRES_USER_USERNAME
+              value: zitadel
+            - name: ZITADEL_DATABASE_POSTGRES_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-secrets
+                  key: ZITADEL_DB_PASSWORD
+            - name: ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME
+              value: postgres
+            - name: ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-secrets
+                  key: ZITADEL_DB_PASSWORD
       containers:
         - name: zitadel
           image: ghcr.io/zitadel/zitadel:latest
-          args: ["start-from-init", "--masterkeyFromEnv", "--tlsMode", "disabled"]
+          args: ["start-from-setup", "--masterkeyFromEnv", "--tlsMode", "enabled"]
           ports:
             - containerPort: 8080
           env:
@@ -55,16 +81,26 @@ spec:
               value: Skymap
             - name: ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED
               value: "false"
+            - name: ZITADEL_TLS_CERTPATH
+              value: /zitadel-tls/tls.crt
+            - name: ZITADEL_TLS_KEYPATH
+              value: /zitadel-tls/tls.key
+          volumeMounts:
+            - name: zitadel-tls
+              mountPath: /zitadel-tls
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /debug/healthz
               port: 8080
+              scheme: HTTPS
             initialDelaySeconds: 15
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /debug/healthz
               port: 8080
+              scheme: HTTPS
             initialDelaySeconds: 30
             periodSeconds: 30
           resources:
@@ -74,3 +110,7 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+      volumes:
+        - name: zitadel-tls
+          secret:
+            secretName: zitadel-server-tls

@@ -32,6 +32,7 @@ class Settings(BaseSettings):
 
     # App
     enable_docs: bool = False
+    cors_origins: str = "http://localhost:5500,http://localhost:8889"
 
     class Config:
         env_file = ".env"

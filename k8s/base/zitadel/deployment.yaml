@@ -16,7 +16,7 @@ spec:
       containers:
         - name: zitadel
           image: ghcr.io/zitadel/zitadel:latest
-          command: ["start-from-init", "--masterkeyFromEnv", "--tlsMode", "disabled"]
+          args: ["start-from-init", "--masterkeyFromEnv", "--tlsMode", "disabled"]
           ports:
             - containerPort: 8080
           env:

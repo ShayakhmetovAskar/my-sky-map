@@ -1,0 +1,29 @@
+name: Setup kubectl
+description: Install YC CLI and configure kubectl for K8s cluster
+
+inputs:
+  sa-key:
+    description: Yandex Cloud service account key JSON
+    required: true
+  cluster-id:
+    description: K8s cluster ID
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install YC CLI
+      shell: bash
+      run: |
+        curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -n
+        echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+
+    - name: Configure kubectl
+      shell: bash
+      env:
+        SA_KEY: ${{ inputs.sa-key }}
+      run: |
+        trap 'rm -f sa-key.json' EXIT
+        printenv SA_KEY > sa-key.json
+        yc config set service-account-key sa-key.json
+        yc managed-kubernetes cluster get-credentials ${{ inputs.cluster-id }} --external --force

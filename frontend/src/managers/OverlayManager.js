@@ -1,29 +1,36 @@
 import * as THREE from 'three';
+import apiClient from '@/utils/apiClient';
 
 export default class OverlayManager {
     constructor(scene, controls) {
         this.scene = scene;
         this.controls = controls;
         this.textureLoader = new THREE.TextureLoader();
-        this.overlays = {}; // Объект для хранения мешей по task_id**
+        this.overlays = {};
     }
 
     async overlay(task_id) {
         try {
-            // 1. Получаем данные задачи
-            const response = await fetch(`/api/task/${task_id}`);
-            if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
-
-
-            const taskData = await response.json();
-
+            // 1. Получаем данные задачи через solver API
+            const { data: taskData } = await apiClient.get(`/tasks/${task_id}`);
             const result = taskData.result;
+            if (!result) throw new Error('Task has no result');
 
-            // 2. Создаем геометрию на основе mesh
-            const geometry = this.createMeshGeometry(result.mesh);
+            // 2. Загружаем mesh данные (из presigned URL или inline)
+            let meshData = result.mesh;
+            if (result.mesh_json_url) {
+                const meshResponse = await fetch(result.mesh_json_url);
+                if (!meshResponse.ok) throw new Error(`Mesh fetch error: ${meshResponse.status}`);
+                meshData = await meshResponse.json();
+            }
+            if (!meshData) throw new Error('No mesh data available');
 
-            // 3. Загружаем текстуру
-            const texture = await this.loadTexture(taskData.file_path);
+            const geometry = this.createMeshGeometry(meshData);
+
+            // 3. Загружаем текстуру (из presigned URL)
+            const textureUrl = result.original_image_url || result.annotated_image_url;
+            if (!textureUrl) throw new Error('No image URL in result');
+            const texture = await this.loadTexture(textureUrl);
 
             // 4. Создаем материал и меш
             const material = new THREE.MeshBasicMaterial({
@@ -39,7 +46,7 @@ export default class OverlayManager {
             this.scene.add(mesh);
             this.overlays[task_id] = mesh; // Сохраняем меш в overlays**
             
-            this.focusCameraOnMeshCenter(result.mesh);
+            this.focusCameraOnMeshCenter(meshData);
 
 
             return result;
@@ -125,8 +132,6 @@ export default class OverlayManager {
         // Направляем камеру в эту точку
         this.controls.camera.position.set(-worldPos.x, -worldPos.y, -worldPos.z);
         this.controls.setFov(fovDegrees);
-        console.log(worldPos);
-
         return worldPos;
     }
 
@@ -210,10 +215,10 @@ export default class OverlayManager {
         return geometry;
     }
 
-    async loadTexture(file_path) {
+    async loadTexture(url) {
         return new Promise((resolve, reject) => {
             this.textureLoader.load(
-                `/api/uploads/${file_path}`,
+                url,
                 texture => {
                     // Улучшенные настройки текстуры
                     texture.colorSpace = THREE.SRGBColorSpace; // Правильное цветовое пространство

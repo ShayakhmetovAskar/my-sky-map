@@ -3,12 +3,13 @@
         <h1>Plate Solver</h1>
 
         <!-- Upload form with Drag and Drop -->
-        <div class="upload-section" v-if="!isLoading" @dragover.prevent @drop.prevent @dragleave.prevent>
-            <div class="drop-zone" @drop="handleDrop" @dragover="handleDragOver" @dragleave="handleDragLeave">
-                <input type="file" @change="handleFileUpload" accept="image/*" />
+        <div class="upload-section" v-if="!isLoading && !currentTask" @dragover.prevent @drop.prevent @dragleave.prevent>
+            <div class="drop-zone" :class="{ dragover: isDragging }" @drop="handleDrop" @dragover="handleDragOver" @dragleave="handleDragLeave">
+                <input type="file" @change="handleFileUpload" accept="image/*,.fits,.fit" />
                 <p>Drag and drop an image here or click to select</p>
+                <p v-if="file" class="file-info">{{ file.name }} ({{ (file.size / 1024).toFixed(1) }} KB)</p>
                 <button @click="uploadImage" :disabled="!file || isUploading">
-                    {{ isUploading ? 'Uploading...' : 'Process Image' }}
+                    {{ uploadStatus || 'Process Image' }}
                 </button>
             </div>
         </div>
@@ -21,39 +22,29 @@
         <!-- Status display -->
         <div v-if="currentTask" class="status-section">
             <h2>Processing Status</h2>
-            <p>Task ID: {{ currentTask.task_id }}</p>
+            <p>Task ID: {{ currentTask.id }}</p>
             <p>Status: <span :class="statusClass">{{ currentTask.status }}</span></p>
 
-            <!-- Real-time logs display -->
-            <div class="live-logs">
-                <h3>Processing Logs</h3>
-                <div ref="logsContainer" class="logs-window">
-                    <pre>{{ logs }}</pre>
-                </div>
-            </div>
-
-            <div v-if="currentTask.status === 'SUCCESS'" class="result">
+            <div v-if="currentTask.status === 'completed'" class="result">
                 <h3>Result</h3>
                 <div v-if="parsedResult">
-                    <p v-if="parsedResult.center_ra && parsedResult.center_dec">
+                    <p v-if="parsedResult.center_ra != null && parsedResult.center_dec != null">
                         Center: RA {{ parsedResult.center_ra.toFixed(6) }}, Dec {{ parsedResult.center_dec.toFixed(6) }}
                     </p>
-                    <p v-if="parsedResult.scale_arcsec_per_pixel">
-                        Scale: {{ parsedResult.scale_arcsec_per_pixel.toFixed(3) }} arcsec/pixel
+                    <p v-if="parsedResult.pixel_scale">
+                        Scale: {{ parsedResult.pixel_scale.toFixed(3) }} arcsec/pixel
                     </p>
                 </div>
 
-
-
-                <div v-if="resultImageUrl" class="image-container">
+                <div v-if="annotatedImageUrl" class="image-container">
                     <h3>Annotated Image</h3>
-                    <img :src="resultImageUrl" alt="Processed result" />
+                    <img :src="annotatedImageUrl" alt="Processed result" />
                 </div>
             </div>
 
-            <div v-else-if="currentTask.status === 'FAILED'" class="error">
+            <div v-else-if="currentTask.status === 'failed'" class="error">
                 <h3>Error processing image</h3>
-                <pre v-if="parsedResult && parsedResult.error">{{ parsedResult.error }}</pre>
+                <pre v-if="currentTask.error">{{ currentTask.error.message }}</pre>
             </div>
         </div>
 
@@ -61,20 +52,19 @@
         <div v-if="error" class="error">
             {{ error }}
         </div>
-
-
     </div>
+
     <div class="scene-wrapper">
-        <div v-if="currentTask?.status === 'SUCCESS'" class="scene-wrapper" style="width: 95%; margin: 0 auto;">
-            <Scene :taskId="currentTask.task_id" />
+        <div v-if="currentTask?.status === 'completed'" class="scene-wrapper" style="width: 95%; margin: 0 auto;">
+            <Scene :taskId="currentTask.id" />
         </div>
     </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import axios from 'axios'
+import apiClient from '@/utils/apiClient'
 
 import Scene from '@/views/Scene.vue'
 
@@ -85,230 +75,191 @@ const currentTask = ref(null)
 const isUploading = ref(false)
 const isLoading = ref(false)
 const error = ref(null)
-const statusPollingInterval = ref(null)
-const logsPollingInterval = ref(null)
-const logs = ref("")
-const logsContainer = ref(null)
-const isDragging = ref(false) // Новый ref для отслеживания состояния перетаскивания
+const uploadStatus = ref(null)
+const isDragging = ref(false)
+let statusPollingInterval = null
+
+const POLL_INTERVAL = 2000
 
 const parsedResult = computed(() => {
-    if (currentTask.value?.result) {
-        try {
-            return typeof currentTask.value.result === 'string'
-                ? JSON.parse(currentTask.value.result)
-                : currentTask.value.result;
-        } catch (e) {
-            console.error("Error parsing result:", e);
-            return null;
-        }
-    }
-    return null;
-});
+    return currentTask.value?.result || null
+})
 
 const statusClass = computed(() => {
-    if (!currentTask.value) return '';
+    if (!currentTask.value) return ''
     switch (currentTask.value.status) {
-        case 'SUCCESS': return 'status-success';
-        case 'FAILED': return 'status-failed';
-        case 'PROCESSING': return 'status-processing';
-        case 'PENDING': return 'status-pending';
-        default: return '';
+        case 'completed': return 'status-success'
+        case 'failed': return 'status-failed'
+        case 'processing': return 'status-processing'
+        case 'pending': return 'status-pending'
+        default: return ''
     }
-});
+})
 
-const resultImageUrl = computed(() => {
-    if (parsedResult.value && parsedResult.value.ngc_image) {
-        const parts = parsedResult.value.ngc_image.split('/');
-        const filename = parts[parts.length - 1];
-        return `/api/uploads/${filename}`;
+const annotatedImageUrl = computed(() => {
+    if (parsedResult.value?.annotated_image_url) {
+        return parsedResult.value.annotated_image_url
     }
-    return '';
-});
+    return ''
+})
 
-// Auto-scroll logs to bottom
-const scrollLogsToBottom = () => {
-    nextTick(() => {
-        if (logsContainer.value) {
-            logsContainer.value.scrollTop = logsContainer.value.scrollHeight;
-        }
-    });
-};
-
-// Fetch logs for a specific task
-const fetchLogs = async (taskId) => {
-    try {
-        const response = await axios.get(`/api/logs/${taskId}`);
-        logs.value = response.data.logs || "";
-        scrollLogsToBottom();
-    } catch (err) {
-        console.error("Error fetching logs:", err);
-    }
-};
-
-// Start polling for logs
-const startLogsPolling = (taskId) => {
-    if (logsPollingInterval.value) {
-        clearInterval(logsPollingInterval.value);
-    }
-
-    fetchLogs(taskId);
-
-    logsPollingInterval.value = setInterval(() => {
-        fetchLogs(taskId);
-    }, 10000);
-};
-
-// Stop logs polling
-const stopLogsPolling = () => {
-    if (logsPollingInterval.value) {
-        clearInterval(logsPollingInterval.value);
-        logsPollingInterval.value = null;
-    }
-};
-
-onMounted(() => {
-    const taskId = route.params.taskId;
-    if (taskId) {
-        isLoading.value = true;
-        fetchTaskStatus(taskId)
-            .then(data => {
-                if (['PENDING', 'PROCESSING'].includes(data.status)) {
-                    startStatusPolling(taskId);
-                    startLogsPolling(taskId);
-                } else {
-                    fetchLogs(taskId);
-                }
-            })
-            .catch(err => {
-                error.value = 'Error loading task: ' + err.message;
-            })
-            .finally(() => {
-                isLoading.value = false;
-            });
-    }
-
-    return () => {
-        if (statusPollingInterval.value) {
-            clearInterval(statusPollingInterval.value);
-        }
-        stopLogsPolling();
-    };
-});
-
-watch(() => route.params.taskId, (newTaskId) => {
-    if (newTaskId && newTaskId !== currentTask.value?.task_id) {
-        if (statusPollingInterval.value) {
-            clearInterval(statusPollingInterval.value);
-        }
-        stopLogsPolling();
-        logs.value = "";
-
-        isLoading.value = true;
-        fetchTaskStatus(newTaskId)
-            .then(data => {
-                if (['PENDING', 'PROCESSING'].includes(data.status)) {
-                    startStatusPolling(newTaskId);
-                    startLogsPolling(newTaskId);
-                } else {
-                    fetchLogs(newTaskId);
-                }
-            })
-            .catch(err => {
-                error.value = 'Error loading task: ' + err.message;
-            })
-            .finally(() => {
-                isLoading.value = false;
-            });
-    }
-});
+// ─── File handling ───────────────────────────────────────────────────────────
 
 const handleFileUpload = (event) => {
-    file.value = event.target.files[0];
-};
+    file.value = event.target.files[0]
+}
+
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/fits']
+const ALLOWED_EXTENSIONS = /\.(jpg|jpeg|png|fits|fit)$/i
 
 const handleDrop = (event) => {
-    event.preventDefault();
-    isDragging.value = false;
-    const droppedFile = event.dataTransfer.files[0];
-    if (droppedFile && droppedFile.type.startsWith('image/')) {
-        file.value = droppedFile;
+    event.preventDefault()
+    isDragging.value = false
+    const droppedFile = event.dataTransfer.files[0]
+    if (droppedFile && (ALLOWED_TYPES.includes(droppedFile.type) || ALLOWED_EXTENSIONS.test(droppedFile.name))) {
+        file.value = droppedFile
     } else {
-        error.value = 'Please drop an image file.';
+        error.value = 'Please drop an image file (JPEG, PNG, or FITS).'
     }
-};
+}
 
 const handleDragOver = (event) => {
-    event.preventDefault();
-    isDragging.value = true;
-};
+    event.preventDefault()
+    isDragging.value = true
+}
 
 const handleDragLeave = () => {
-    isDragging.value = false;
-};
+    isDragging.value = false
+}
+
+// ─── Upload flow (4 steps) ───────────────────────────────────────────────────
 
 const uploadImage = async () => {
-    if (!file.value) return;
+    if (!file.value) return
 
-    isUploading.value = true;
-    error.value = null;
-    logs.value = "";
+    isUploading.value = true
+    error.value = null
 
     try {
-        const formData = new FormData();
-        formData.append('file', file.value);
+        // Step 1: Create submission
+        uploadStatus.value = 'Creating submission...'
+        // Normalize to API enum: image/jpeg, image/png, application/fits
+        let contentType = file.value.type
+        if (/\.(fits|fit)$/i.test(file.value.name)) {
+            contentType = 'application/fits'
+        } else if (!contentType || !['image/jpeg', 'image/png'].includes(contentType)) {
+            contentType = 'image/jpeg'
+        }
+        const { data: submission } = await apiClient.post('/submissions', {
+            filename: file.value.name,
+            content_type: contentType,
+            file_size_bytes: file.value.size,
+        })
 
-        const response = await axios.post('/api/upload', formData, {
-            headers: {
-                'Content-Type': 'multipart/form-data'
-            }
-        });
+        // Step 2: Upload file to presigned URL
+        uploadStatus.value = 'Uploading file...'
+        const uploadRes = await fetch(submission.upload_url, {
+            method: 'PUT',
+            headers: { 'Content-Type': contentType },
+            body: file.value,
+        })
+        if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status} ${uploadRes.statusText}`)
 
-        const taskId = response.data.task_id;
-        currentTask.value = response.data;
+        // Step 3: Confirm upload
+        uploadStatus.value = 'Confirming...'
+        await apiClient.post(`/submissions/${submission.submission_id}/confirm`)
 
-        router.push(`/solve/${taskId}`);
+        // Step 4: Create task
+        uploadStatus.value = 'Starting solver...'
+        const { data: task } = await apiClient.post('/tasks', {
+            submission_id: submission.submission_id,
+        })
 
-        startStatusPolling(taskId);
-        startLogsPolling(taskId);
+        currentTask.value = task
+        router.push(`/solve/${task.id}`)
+        startStatusPolling(task.id)
+
     } catch (err) {
-        error.value = 'Error uploading image: ' + err.message;
+        error.value = 'Error: ' + (err.response?.data?.detail || err.message)
     } finally {
-        isUploading.value = false;
+        isUploading.value = false
+        uploadStatus.value = null
     }
-};
+}
+
+// ─── Task status polling ─────────────────────────────────────────────────────
 
 const fetchTaskStatus = async (taskId) => {
     try {
-        const response = await axios.get(`/api/status/${taskId}`);
-        currentTask.value = response.data;
-        return response.data;
+        const { data } = await apiClient.get(`/tasks/${taskId}`)
+        currentTask.value = data
+        return data
     } catch (err) {
-        error.value = 'Error checking status: ' + err.message;
-        throw err;
+        error.value = 'Error checking status: ' + (err.response?.data?.detail || err.message)
+        throw err
     }
-};
+}
 
 const startStatusPolling = (taskId) => {
-    if (statusPollingInterval.value) {
-        clearInterval(statusPollingInterval.value);
-    }
-
-    statusPollingInterval.value = setInterval(async () => {
+    stopStatusPolling()
+    statusPollingInterval = setInterval(async () => {
         try {
-            const data = await fetchTaskStatus(taskId);
+            const data = await fetchTaskStatus(taskId)
+            if (['completed', 'failed', 'cancelled'].includes(data.status)) {
+                stopStatusPolling()
+            }
+        } catch {
+            stopStatusPolling()
+        }
+    }, POLL_INTERVAL)
+}
 
-            if (['SUCCESS', 'FAILED', 'FAILURE'].includes(data.status)) {
-                clearInterval(statusPollingInterval.value);
-                stopLogsPolling();
+const stopStatusPolling = () => {
+    if (statusPollingInterval) {
+        clearInterval(statusPollingInterval)
+        statusPollingInterval = null
+    }
+}
 
-                fetchLogs(taskId);
+// ─── Lifecycle ───────────────────────────────────────────────────────────────
+
+onMounted(async () => {
+    const taskId = route.params.taskId
+    if (taskId) {
+        isLoading.value = true
+        try {
+            const data = await fetchTaskStatus(taskId)
+            if (['pending', 'processing'].includes(data.status)) {
+                startStatusPolling(taskId)
             }
         } catch (err) {
-            clearInterval(statusPollingInterval.value);
-            stopLogsPolling();
+            error.value = 'Error loading task: ' + err.message
+        } finally {
+            isLoading.value = false
         }
-    }, 2000);
-};
+    }
+})
+
+onUnmounted(() => {
+    stopStatusPolling()
+})
+
+watch(() => route.params.taskId, async (newTaskId) => {
+    if (newTaskId && newTaskId !== currentTask.value?.id) {
+        stopStatusPolling()
+        isLoading.value = true
+        try {
+            const data = await fetchTaskStatus(newTaskId)
+            if (['pending', 'processing'].includes(data.status)) {
+                startStatusPolling(newTaskId)
+            }
+        } catch (err) {
+            error.value = 'Error loading task: ' + err.message
+        } finally {
+            isLoading.value = false
+        }
+    }
+})
 </script>
 
 <style scoped>
@@ -354,6 +305,12 @@ const startStatusPolling = (taskId) => {
     background: #e1f0ff;
     border-color: #2196f3;
     color: #2196f3;
+}
+
+.file-info {
+    color: #666;
+    font-size: 0.85rem;
+    margin-top: 0.5rem;
 }
 
 button {
@@ -405,7 +362,6 @@ button:disabled {
     margin-top: 1.5rem;
 }
 
-/* Status colors */
 .status-success {
     color: #4caf50;
     font-weight: bold;
@@ -424,29 +380,5 @@ button:disabled {
 .status-pending {
     color: #ff9800;
     font-weight: bold;
-}
-
-/* Live logs styling */
-.live-logs {
-    margin: 1rem 0 2rem;
-}
-
-.logs-window {
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    background: #000;
-    color: #00ff00;
-    height: 250px;
-    overflow-y: auto;
-    font-family: 'Courier New', monospace;
-}
-
-.logs-window pre {
-    padding: 10px;
-    margin: 0;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    font-size: 0.85rem;
-    line-height: 1.4;
 }
 </style>

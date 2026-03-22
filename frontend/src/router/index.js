@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuth } from '@/composables/useAuth'
 
 const routes = [
     {
@@ -15,18 +16,31 @@ const routes = [
     {
         path: '/solve',
         name: 'Solve',
-        component: () => import('@/views/Solve.vue')
+        component: () => import('@/views/Solve.vue'),
+        meta: { requiresAuth: true },
     },
     {
         path: '/solve/:taskId',
         name: 'SolveTask',
-        component: () => import('@/views/Solve.vue')
+        component: () => import('@/views/Solve.vue'),
+        meta: { requiresAuth: true },
     }
 ]
 
 const router = createRouter({
     history: createWebHistory(import.meta.env.BASE_URL),
     routes
+})
+
+router.beforeEach((to) => {
+    if (to.meta.requiresAuth) {
+        const { getToken } = useAuth()
+        if (!getToken()) {
+            const { login } = useAuth()
+            login()
+            return false
+        }
+    }
 })
 
 export default router

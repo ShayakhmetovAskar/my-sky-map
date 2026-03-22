@@ -143,9 +143,12 @@ const uploadImage = async () => {
     try {
         // Step 1: Create submission
         uploadStatus.value = 'Creating submission...'
+        // Normalize to API enum: image/jpeg, image/png, application/fits
         let contentType = file.value.type
-        if (!contentType || contentType === 'application/octet-stream') {
-            contentType = /\.(fits|fit)$/i.test(file.value.name) ? 'application/fits' : 'image/jpeg'
+        if (/\.(fits|fit)$/i.test(file.value.name)) {
+            contentType = 'application/fits'
+        } else if (!contentType || !['image/jpeg', 'image/png'].includes(contentType)) {
+            contentType = 'image/jpeg'
         }
         const { data: submission } = await apiClient.post('/submissions', {
             filename: file.value.name,

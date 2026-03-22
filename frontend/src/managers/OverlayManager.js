@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { useAuth } from '@/composables/useAuth';
+import apiClient from '@/utils/apiClient';
 
 export default class OverlayManager {
     constructor(scene, controls) {
@@ -12,15 +12,7 @@ export default class OverlayManager {
     async overlay(task_id) {
         try {
             // 1. Получаем данные задачи через solver API
-            const apiUrl = import.meta.env.VITE_SOLVER_API_URL || '/api/v1';
-            const { getToken } = useAuth();
-            const token = getToken();
-            const headers = token ? { Authorization: `Bearer ${token}` } : {};
-
-            const response = await fetch(`${apiUrl}/tasks/${task_id}`, { headers });
-            if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
-
-            const taskData = await response.json();
+            const { data: taskData } = await apiClient.get(`/tasks/${task_id}`);
             const result = taskData.result;
             if (!result) throw new Error('Task has no result');
 
@@ -31,6 +23,7 @@ export default class OverlayManager {
                 if (!meshResponse.ok) throw new Error(`Mesh fetch error: ${meshResponse.status}`);
                 meshData = await meshResponse.json();
             }
+            if (!meshData) throw new Error('No mesh data available');
 
             const geometry = this.createMeshGeometry(meshData);
 

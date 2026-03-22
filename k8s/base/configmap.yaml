@@ -7,5 +7,5 @@ data:
   MINIO_ENDPOINT: "storage.yandexcloud.net"
   MINIO_BUCKET: "solver-data"
   MINIO_SECURE: "true"
-  ZITADEL_ISSUER_URL: "https://auth.skymap.afsh.space"
+  ZITADEL_ISSUER_URL: "https://skymap-auth.afsh.space"
   ZITADEL_AUDIENCE: ""

@@ -117,7 +117,12 @@ jobs:
           kubectl rollout status deployment/solver-worker -n ${{ env.K8S_NAMESPACE }} --timeout=120s
 
       - name: Verify
-        run: curl -sf https://skymap.afsh.space/api/v1/healthcheck
+        run: |
+          for i in $(seq 1 5); do
+            curl -sf https://skymap.afsh.space/api/v1/healthcheck && exit 0
+            sleep 5
+          done
+          exit 1
 
   deploy-playground:
     needs: setup-k8s
@@ -153,7 +158,12 @@ jobs:
           kubectl rollout status deployment/playground -n ${{ env.K8S_NAMESPACE }} --timeout=120s
 
       - name: Verify
-        run: curl -sf https://skymap-playground.afsh.space/
+        run: |
+          for i in $(seq 1 5); do
+            curl -sf https://skymap-playground.afsh.space/ && exit 0
+            sleep 5
+          done
+          exit 1
 
   deploy-frontend:
     needs: setup-k8s
@@ -192,4 +202,9 @@ jobs:
           kubectl rollout status deployment/frontend -n ${{ env.K8S_NAMESPACE }} --timeout=120s
 
       - name: Verify
-        run: curl -sf https://skymap-app.afsh.space/
+        run: |
+          for i in $(seq 1 5); do
+            curl -sf https://skymap-app.afsh.space/ && exit 0
+            sleep 5
+          done
+          exit 1

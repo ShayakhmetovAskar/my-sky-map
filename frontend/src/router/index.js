@@ -34,9 +34,8 @@ const router = createRouter({
 
 router.beforeEach((to) => {
     if (to.meta.requiresAuth) {
-        const { getToken } = useAuth()
+        const { getToken, login } = useAuth()
         if (!getToken()) {
-            const { login } = useAuth()
             login()
             return false
         }

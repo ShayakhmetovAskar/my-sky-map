@@ -46,7 +46,7 @@ spec:
                   name: skymap-secrets
                   key: ZITADEL_DB_PASSWORD
             - name: ZITADEL_EXTERNALDOMAIN
-              value: auth.skymap.afsh.space
+              value: skymap-auth.afsh.space
             - name: ZITADEL_EXTERNALPORT
               value: "443"
             - name: ZITADEL_EXTERNALSECURE

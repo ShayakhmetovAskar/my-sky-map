@@ -53,7 +53,7 @@ export default class OverlayManager {
             this.scene.add(mesh);
             this.overlays[task_id] = mesh; // Сохраняем меш в overlays**
             
-            this.focusCameraOnMeshCenter(result.mesh);
+            this.focusCameraOnMeshCenter(meshData);
 
 
             return result;
@@ -139,8 +139,6 @@ export default class OverlayManager {
         // Направляем камеру в эту точку
         this.controls.camera.position.set(-worldPos.x, -worldPos.y, -worldPos.z);
         this.controls.setFov(fovDegrees);
-        console.log(worldPos);
-
         return worldPos;
     }
 

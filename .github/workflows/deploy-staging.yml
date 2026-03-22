@@ -74,13 +74,21 @@ jobs:
         with:
           yc-sa-json-credentials: ${{ secrets.YC_SA_KEY_JSON }}
 
-      - name: Build and push image
+      - name: Build and push solver image
         run: |
           docker build \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ github.sha }} \
             -f services/solver/Dockerfile \
             services/solver/
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ github.sha }}
+
+      - name: Build and push playground image
+        run: |
+          docker build \
+            -t ${{ env.REGISTRY }}/skymap-playground:${{ github.sha }} \
+            -f frontend/playground/Dockerfile \
+            frontend/playground/
+          docker push ${{ env.REGISTRY }}/skymap-playground:${{ github.sha }}
 
       - name: Install YC CLI
         run: |
@@ -99,7 +107,7 @@ jobs:
       - name: Apply manifests
         run: kubectl apply -f k8s/base/ --recursive
 
-      - name: Update image tag
+      - name: Update image tags
         run: |
           kubectl set image deployment/solver-api \
             solver-api=${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ github.sha }} \
@@ -107,11 +115,15 @@ jobs:
           kubectl set image deployment/solver-worker \
             solver-worker=${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ github.sha }} \
             -n ${{ env.K8S_NAMESPACE }}
+          kubectl set image deployment/playground \
+            playground=${{ env.REGISTRY }}/skymap-playground:${{ github.sha }} \
+            -n ${{ env.K8S_NAMESPACE }}
 
       - name: Wait for rollout
         run: |
           kubectl rollout status deployment/solver-api -n ${{ env.K8S_NAMESPACE }} --timeout=120s
           kubectl rollout status deployment/solver-worker -n ${{ env.K8S_NAMESPACE }} --timeout=120s
+          kubectl rollout status deployment/playground -n ${{ env.K8S_NAMESPACE }} --timeout=120s
 
       - name: Verify health
         run: curl -sf https://skymap.afsh.space/api/v1/healthcheck

@@ -31,7 +31,7 @@ _simbad_semaphore = asyncio.Semaphore(10)
 # Validate source_id: Gaia DR3 source_id (up to 19 digits) or HIP ID (up to 6 digits)
 _SOURCE_ID_PATTERN = re.compile(r"^\d{1,19}$")
 
-SIMBAD_TIMEOUT = 10  # seconds
+SIMBAD_TIMEOUT = 5  # seconds per SIMBAD HTTP request
 
 
 def _seed_cache():
@@ -62,28 +62,25 @@ async def _lookup_simbad(source_id: str) -> Optional[dict]:
     Runs in thread pool since astroquery is synchronous.
     """
 
-    def _query():
+    def _single_query(query_id):
+        """Single SIMBAD query (runs in thread pool)."""
         try:
             from astroquery.simbad import Simbad
-
             simbad = Simbad()
             simbad.add_votable_fields("ids", "sp", "flux(V)", "flux(B)")
             simbad.TIMEOUT = SIMBAD_TIMEOUT
+            result = simbad.query_object(query_id)
+            if result is not None and len(result) > 0:
+                return result
+        except Exception:
+            pass
+        return None
 
-            # Build query chain based on source_id length
-            if len(source_id) <= 6:
-                queries = [f"HIP {source_id}", f"Gaia DR3 {source_id}", f"Gaia DR2 {source_id}"]
-            else:
-                queries = [f"Gaia DR3 {source_id}", f"Gaia DR2 {source_id}"]
-
-            result = None
-            for q in queries:
-                result = simbad.query_object(q)
-                if result is not None and len(result) > 0:
-                    break
-            if result is None or len(result) == 0:
-                return None
-
+    def _parse_result(result):
+        """Parse SIMBAD result into dict. Extracted from _query for reuse."""
+        if result is None or len(result) == 0:
+            return None
+        try:
             row = result[0]
             # Handle both old and new SIMBAD API column names
             main_id = None
@@ -170,17 +167,32 @@ async def _lookup_simbad(source_id: str) -> Optional[dict]:
 
             return info
         except Exception as e:
-            logger.warning("SIMBAD query failed for %s: %s", source_id, e)
+            logger.warning("SIMBAD parse failed for %s: %s", source_id, e)
             return None
+
+    # Build query list based on source_id length
+    if len(source_id) <= 6:
+        query_ids = [f"HIP {source_id}", f"Gaia DR3 {source_id}", f"Gaia DR2 {source_id}"]
+    else:
+        query_ids = [f"Gaia DR3 {source_id}", f"Gaia DR2 {source_id}"]
 
     async with _simbad_semaphore:
         try:
-            return await asyncio.wait_for(
-                asyncio.to_thread(_query),
-                timeout=SIMBAD_TIMEOUT + 5,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("SIMBAD query timed out for %s", source_id)
+            # Run all queries in parallel
+            tasks = [
+                asyncio.wait_for(asyncio.to_thread(_single_query, q), timeout=SIMBAD_TIMEOUT + 2)
+                for q in query_ids
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Take first successful result
+            for r in results:
+                if r is not None and not isinstance(r, Exception):
+                    return _parse_result(r)
+
+            return None
+        except Exception as e:
+            logger.warning("SIMBAD query failed for %s: %s", source_id, e)
             return None
 
 

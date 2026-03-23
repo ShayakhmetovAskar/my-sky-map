@@ -1,5 +1,6 @@
 """Tasks router — CRUD + cancel."""
 
+import logging
 from typing import Optional
 from uuid import UUID
 
@@ -7,7 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..dependencies import get_current_user, get_db
+from ..dependencies import get_current_user, get_db, get_storage
+from ..services.storage import StorageService
+
+logger = logging.getLogger(__name__)
 from ..models.db import Submission, Task
 from ..models.schemas import (
     CreateTaskRequest,
@@ -72,12 +76,34 @@ async def get_task(
     task_id: UUID,
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    storage: StorageService = Depends(get_storage),
 ):
     query = select(Task).where(Task.id == task_id, Task.user_id == user_id)
     task = (await db.execute(query)).scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
-    return task
+
+    # Build response with fresh presigned URLs (don't mutate ORM object)
+    response = TaskDetailed.model_validate(task)
+
+    if task.result:
+        result = dict(task.result)
+        key_to_url = {
+            "original_image_key": "original_image_url",
+            "annotated_image_key": "annotated_image_url",
+            "mesh_json_key": "mesh_json_url",
+            "wcs_key": "wcs_url",
+        }
+        for key_field, url_field in key_to_url.items():
+            obj_key = result.get(key_field)
+            if obj_key:
+                try:
+                    result[url_field] = storage.generate_presigned_download_url(obj_key)
+                except Exception as e:
+                    logger.warning("Failed to generate URL for %s: %s", obj_key, e)
+        response.result = result
+
+    return response
 
 
 @router.post("/{task_id}/cancel", response_model=TaskSummary)

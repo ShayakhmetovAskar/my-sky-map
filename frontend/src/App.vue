@@ -42,7 +42,7 @@ const router = useRouter()
 const { isAuthenticated, user, login, logout, handleCallback, initAuth } = useAuth()
 
 const showMenu = ref(false)
-const showAuthBar = computed(() => true)
+const showAuthBar = computed(() => route.name !== 'Scene' && route.name !== 'SceneDisplay')
 const displayName = computed(() => user.value?.name || 'User')
 
 function doLogout() {

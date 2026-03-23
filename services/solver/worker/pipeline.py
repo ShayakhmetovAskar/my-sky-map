@@ -51,7 +51,7 @@ class Pipeline:
             solve_result = await self.solver.solve(image_path, options)
             mesh_data = self._generate_mesh(image_path, solve_result.wcs_path)
             result = self._upload_results(output_prefix, solve_result, mesh_data, work_dir)
-            result["original_image_url"] = self.storage.generate_presigned_download_url(object_key)
+            result["original_image_key"] = object_key
 
             logger.info("Task %s completed: ra=%.4f, dec=%.4f", task_id, result["center_ra"], result["center_dec"])
             return result
@@ -77,7 +77,7 @@ class Pipeline:
             return None
 
     def _upload_results(self, output_prefix: str, solve_result, mesh_data: Optional[list], work_dir: Path) -> dict:
-        """Upload solve outputs to MinIO, return result dict with presigned URLs."""
+        """Upload solve outputs to MinIO, return result dict with object keys (not presigned URLs)."""
         result = {
             "center_ra": solve_result.center_ra,
             "center_dec": solve_result.center_dec,
@@ -89,19 +89,19 @@ class Pipeline:
         if solve_result.annotated_image_path and solve_result.annotated_image_path.exists():
             key = f"{output_prefix}/annotated.png"
             self.storage.upload_file(key, str(solve_result.annotated_image_path), "image/png")
-            result["annotated_image_url"] = self.storage.generate_presigned_download_url(key)
+            result["annotated_image_key"] = key
 
         if solve_result.wcs_path and solve_result.wcs_path.exists():
             key = f"{output_prefix}/wcs.fits"
             self.storage.upload_file(key, str(solve_result.wcs_path), "application/fits")
-            result["wcs_url"] = self.storage.generate_presigned_download_url(key)
+            result["wcs_key"] = key
 
         if mesh_data is not None:
             mesh_path = work_dir / "mesh.json"
             mesh_path.write_text(json.dumps(mesh_data))
             key = f"{output_prefix}/mesh.json"
             self.storage.upload_file(key, str(mesh_path), "application/json")
-            result["mesh_json_url"] = self.storage.generate_presigned_download_url(key)
+            result["mesh_json_key"] = key
 
         return result
 

@@ -13,12 +13,16 @@
       <TrackButton :is-tracking="isTracking" @toggle-tracking="onToggleTracking" />
     </div>
 
-    <div v-if="taskId" class="transparency-slider-container">
-      <div class="slider-label">Overlay Transparency</div>
-      <div class="slider-with-value">
+    <div v-if="taskId" class="overlay-controls">
+      <div class="overlay-mode-toggle">
+        <button :class="{ active: overlayMode === 'original' }" @click="setMode('original')">Original</button>
+        <button :class="{ active: overlayMode === 'annotated' }" @click="setMode('annotated')">Annotated</button>
+        <button :class="{ active: overlayMode === 'off' }" @click="setMode('off')">Off</button>
+      </div>
+      <div v-if="overlayMode !== 'off'" class="slider-with-value">
         <input type="range" min="0" max="1" step="0.01" v-model="overlayOpacity" @input="updateOverlayOpacity"
           class="transparency-slider" />
-        <span class="opacity-value">{{ Math.round(overlayOpacity) }}%</span>
+        <span class="opacity-value">{{ Math.round(overlayOpacity * 100) }}%</span>
       </div>
     </div>
   </div>
@@ -74,6 +78,7 @@ export default {
     const locationSelectorRef = ref(null);
     const terrainToggleButton = ref(null);
     const overlayOpacity = ref(1);
+    const overlayMode = ref('original');
     const isTracking = ref(false);
 
     let sceneManager = null;
@@ -117,6 +122,16 @@ export default {
       if (groundManager && groundManager.groundMesh) {
         const newVisible = !groundManager.groundMesh.visible;
         groundManager.setVisible(newVisible);
+      }
+    };
+
+    const setMode = (mode) => {
+      overlayMode.value = mode;
+      if (overlayManager) {
+        overlayManager.setOverlayMode(mode);
+        if (mode !== 'off') {
+          overlayManager.setOverlaysOpacity(overlayOpacity.value);
+        }
       }
     };
 
@@ -335,6 +350,8 @@ export default {
       onTerrainToggle,
       updateOverlayOpacity,
       overlayOpacity,
+      overlayMode,
+      setMode,
       onTimeSelectorReady,
       isTracking,
       onToggleTracking,
@@ -378,7 +395,7 @@ export default {
   margin-top: 8px;
 }
 
-.transparency-slider-container {
+.overlay-controls {
   background: rgba(28, 28, 36, 0.95);
   padding: 12px;
   border-radius: 12px;
@@ -386,6 +403,35 @@ export default {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.1);
   margin-top: 8px;
+}
+
+.overlay-mode-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.overlay-mode-toggle button {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 0.8em;
+  background: rgba(255, 255, 255, 0.1);
+  color: #aaa;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.overlay-mode-toggle button.active {
+  background: rgba(66, 185, 131, 0.3);
+  color: #fff;
+  border-color: #42b983;
+}
+
+.overlay-mode-toggle button:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ccc;
 }
 
 .slider-label {

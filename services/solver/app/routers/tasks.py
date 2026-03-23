@@ -83,7 +83,9 @@ async def get_task(
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
-    # Generate fresh presigned URLs from stored object keys
+    # Build response with fresh presigned URLs (don't mutate ORM object)
+    response = TaskDetailed.model_validate(task)
+
     if task.result:
         result = dict(task.result)
         key_to_url = {
@@ -99,10 +101,9 @@ async def get_task(
                     result[url_field] = storage.generate_presigned_download_url(obj_key)
                 except Exception as e:
                     logger.warning("Failed to generate URL for %s: %s", obj_key, e)
-            # Also handle legacy results that already have _url fields
-        task.result = result
+        response.result = result
 
-    return task
+    return response
 
 
 @router.post("/{task_id}/cancel", response_model=TaskSummary)

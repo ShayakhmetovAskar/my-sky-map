@@ -25,7 +25,10 @@
           <div v-else class="placeholder">No image</div>
         </div>
         <div class="info">
-          <div class="filename">{{ sub.filename }}</div>
+          <div class="info-top">
+            <div class="filename">{{ sub.filename }}</div>
+            <button class="delete-btn" @click.stop="deleteSubmission(sub.id)" title="Delete">✕</button>
+          </div>
           <span class="badge" :class="'badge-' + sub.status">{{ sub.status }}</span>
           <div class="meta">{{ formatTime(sub.created_at) }}</div>
         </div>
@@ -95,6 +98,17 @@ async function openSubmission(sub) {
     }
   } catch {
     router.push('/solve')
+  }
+}
+
+async function deleteSubmission(id) {
+  if (!confirm('Delete this submission?')) return
+  try {
+    await apiClient.delete(`/submissions/${id}`)
+    submissions.value = submissions.value.filter(s => s.id !== id)
+    total.value--
+  } catch (e) {
+    alert('Failed to delete: ' + (e.response?.data?.detail || e.message))
   }
 }
 
@@ -168,6 +182,13 @@ h1 {
   padding: 12px;
 }
 
+.info-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
 .filename {
   color: #fff;
   font-size: 0.9em;
@@ -175,7 +196,23 @@ h1 {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-bottom: 6px;
+}
+
+.delete-btn {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 0.9em;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+.delete-btn:hover {
+  color: #f44336;
+  background: rgba(244, 67, 54, 0.1);
 }
 
 .badge {

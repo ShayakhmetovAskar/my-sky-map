@@ -1,6 +1,9 @@
 """Submissions router — CRUD + confirm upload."""
 
+import logging
 from pathlib import PurePosixPath
+
+logger = logging.getLogger(__name__)
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -75,14 +78,15 @@ async def list_submissions(
     )
     items = (await db.execute(items_query)).scalars().all()
 
-    # Generate thumbnail presigned URLs
+    # Generate thumbnail presigned URLs (skip FITS — not displayable in browser)
     summaries = []
     for item in items:
         summary = SubmissionSummary.model_validate(item)
-        try:
-            summary.thumbnail_url = storage.generate_presigned_download_url(item.object_key)
-        except Exception:
-            pass
+        if item.content_type != 'application/fits':
+            try:
+                summary.thumbnail_url = storage.generate_presigned_download_url(item.object_key)
+            except Exception as e:
+                logger.warning("Failed to generate thumbnail URL for %s: %s", item.id, e)
         summaries.append(summary)
 
     return PaginatedSubmissions(items=summaries, total=total)

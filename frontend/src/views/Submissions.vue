@@ -4,6 +4,10 @@
 
     <div v-if="loading" class="loading">Loading...</div>
 
+    <div v-else-if="error" class="empty">
+      <p>{{ error }}</p>
+    </div>
+
     <div v-else-if="submissions.length === 0" class="empty">
       <p>No submissions yet.</p>
       <router-link to="/solve" class="btn">Upload an image</router-link>
@@ -46,6 +50,7 @@ const submissions = ref([])
 const total = ref(0)
 const loading = ref(true)
 const loadingMore = ref(false)
+const error = ref(null)
 const PAGE_SIZE = 20
 
 async function fetchSubmissions(offset = 0) {
@@ -59,7 +64,7 @@ onMounted(async () => {
     submissions.value = data.items
     total.value = data.total
   } catch (e) {
-    console.error('Failed to load submissions:', e)
+    error.value = 'Failed to load submissions: ' + (e.response?.data?.detail || e.message)
   } finally {
     loading.value = false
   }
@@ -70,6 +75,7 @@ async function loadMore() {
   try {
     const data = await fetchSubmissions(submissions.value.length)
     submissions.value.push(...data.items)
+    total.value = data.total
   } finally {
     loadingMore.value = false
   }

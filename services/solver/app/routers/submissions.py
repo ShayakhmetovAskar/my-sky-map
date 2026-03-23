@@ -61,6 +61,7 @@ async def list_submissions(
     offset: int = Query(0, ge=0),
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    storage: StorageService = Depends(get_storage),
 ):
     total_query = select(func.count()).select_from(Submission).where(Submission.user_id == user_id)
     total = (await db.execute(total_query)).scalar()
@@ -74,7 +75,17 @@ async def list_submissions(
     )
     items = (await db.execute(items_query)).scalars().all()
 
-    return PaginatedSubmissions(items=items, total=total)
+    # Generate thumbnail presigned URLs
+    summaries = []
+    for item in items:
+        summary = SubmissionSummary.model_validate(item)
+        try:
+            summary.thumbnail_url = storage.generate_presigned_download_url(item.object_key)
+        except Exception:
+            pass
+        summaries.append(summary)
+
+    return PaginatedSubmissions(items=summaries, total=total)
 
 
 @router.get("/{submission_id}", response_model=SubmissionDetailed)

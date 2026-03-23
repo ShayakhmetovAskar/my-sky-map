@@ -62,10 +62,13 @@ function storeToken(token, expiresIn) {
 function clearToken() {
   sessionStorage.removeItem(TOKEN_KEY)
   sessionStorage.removeItem(TOKEN_EXP_KEY)
-  sessionStorage.removeItem('pkce_verifier')
-  sessionStorage.removeItem('pkce_state')
   isAuthenticated.value = false
   user.value = null
+}
+
+function clearPkce() {
+  sessionStorage.removeItem('pkce_verifier')
+  sessionStorage.removeItem('pkce_state')
 }
 
 // ─── Auth flow ───────────────────────────────────────────────────────────────
@@ -102,7 +105,7 @@ async function handleCallback(code, state) {
 
   if (state !== savedState) {
     console.error('OAuth state mismatch')
-    clearToken()
+    // Don't clearToken — preserve pkce data for retry
     return false
   }
 
@@ -134,6 +137,7 @@ async function handleCallback(code, state) {
 
 function logout() {
   clearToken()
+  clearPkce()
 }
 
 // ─── Init (check existing token) ─────────────────────────────────────────────

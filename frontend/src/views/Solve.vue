@@ -259,10 +259,12 @@ watch(() => route.params.taskId, async (newTaskId) => {
         isLoading.value = true
         try {
             const data = await fetchTaskStatus(newTaskId)
+            if (route.params.taskId !== newTaskId) return
             if (['pending', 'processing'].includes(data.status)) {
                 startStatusPolling(newTaskId)
             }
         } catch (err) {
+            if (route.params.taskId !== newTaskId) return
             error.value = 'Error loading task: ' + err.message
         } finally {
             isLoading.value = false

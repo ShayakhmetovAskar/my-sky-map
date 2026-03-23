@@ -5,25 +5,36 @@
     <pre id="fovValue" ref="hudRef">HUD ...</pre>
   </div>
 
-  <div id="time-selector-wrapper">
-    <TimeSelector ref="timeSelectorRef" @time-changed="onTimeChanged" @ready="onTimeSelectorReady" />
-    <div class="button-row">
-      <LocationSelector ref="locationSelectorRef" @location-changed="onLocationChanged" />
-      <TerrainToggleButton @toggle-terrain="onTerrainToggle" />
-      <TrackButton :is-tracking="isTracking" @toggle-tracking="onToggleTracking" />
-    </div>
+  <!-- Side Menu -->
+  <SideMenu
+    :latitude="observerLat"
+    :longitude="observerLon"
+    @location-changed="onLocationChanged"
+    @toggle-terrain="onTerrainToggle"
+    @toggle-tracking="onToggleTracking"
+  />
 
-    <div v-if="taskId" class="overlay-controls">
-      <div class="overlay-mode-toggle">
-        <button :class="{ active: overlayMode === 'original' }" @click="setMode('original')">Original</button>
-        <button :class="{ active: overlayMode === 'annotated' }" @click="setMode('annotated')">Annotated</button>
-        <button :class="{ active: overlayMode === 'off' }" @click="setMode('off')">Off</button>
-      </div>
-      <div v-if="overlayMode !== 'off'" class="slider-with-value">
-        <input type="range" min="0" max="1" step="0.01" v-model="overlayOpacity" @input="updateOverlayOpacity"
-          class="transparency-slider" />
-        <span class="opacity-value">{{ Math.round(overlayOpacity * 100) }}%</span>
-      </div>
+  <!-- Bottom Bar: time + ground + tracking -->
+  <TimeSelectorV2 ref="timeSelectorRef"
+    :ground="terrainOn"
+    :tracking="isTracking"
+    @time-changed="onTimeChanged"
+    @ready="onTimeSelectorReady"
+    @toggle-terrain="onTerrainToggle"
+    @toggle-tracking="onToggleTracking"
+  />
+
+  <!-- Overlay Controls (when viewing solved image) -->
+  <div v-if="taskId" class="overlay-controls">
+    <div class="overlay-mode-toggle">
+      <button :class="{ active: overlayMode === 'original' }" @click="setMode('original')">Original</button>
+      <button :class="{ active: overlayMode === 'annotated' }" @click="setMode('annotated')">Annotated</button>
+      <button :class="{ active: overlayMode === 'off' }" @click="setMode('off')">Off</button>
+    </div>
+    <div v-if="overlayMode !== 'off'" class="slider-with-value">
+      <input type="range" min="0" max="1" step="0.01" v-model="overlayOpacity" @input="updateOverlayOpacity"
+        class="transparency-slider" />
+      <span class="opacity-value">{{ Math.round(overlayOpacity * 100) }}%</span>
     </div>
   </div>
 
@@ -44,11 +55,9 @@ import UIManager from '@/managers/UIManager';
 import GroundManager from '@/managers/GroundManager';
 import LabelManager from '@/managers/LabelManager';
 import GraphicsDebugManager from '@/managers/GraphicsDebugManager';
-import TimeSelector from '@/components/TimeSelector.vue';
-import TerrainToggleButton from '@/components/TerrainToggleButton.vue';
-import LocationSelector from '@/components/LocationSelector.vue';
+import TimeSelectorV2 from '@/components/TimeSelectorV2.vue';
+import SideMenu from '@/components/SideMenu.vue';
 import DebugPanel from '@/components/DebugPanel.vue';
-import TrackButton from '@/components/TrackButton.vue';
 import HealpixManager from '@/managers/HealpixManager';
 import OverlayManager from '@/managers/OverlayManager';
 import { getWorldUp, equatorial_to_cartesian, cartesian_to_equatorial } from '@/utils/algos';
@@ -59,11 +68,9 @@ import { getWorldUp, equatorial_to_cartesian, cartesian_to_equatorial } from '@/
 export default {
   name: 'Scene',
   components: {
-    TimeSelector,
-    LocationSelector,
-    TerrainToggleButton,
+    TimeSelectorV2,
+    SideMenu,
     DebugPanel,
-    TrackButton,
   },
   props: {
     taskId: {
@@ -80,6 +87,7 @@ export default {
     const overlayOpacity = ref(1);
     const overlayMode = ref('original');
     const isTracking = ref(false);
+    const terrainOn = ref(true);
 
     let sceneManager = null;
     let updateStarsInterval = null;
@@ -95,6 +103,8 @@ export default {
 
     const debugList = ref([0, 0, 0, 0]);
 
+    const observerLat = ref(59.9343);
+    const observerLon = ref(30.3351);
     const observer = {
       latitude: 59.9343,
       longitude: 30.3351,
@@ -115,6 +125,8 @@ export default {
     const onLocationChanged = (newLocation) => {
       observer.latitude = newLocation.latitude;
       observer.longitude = newLocation.longitude;
+      observerLat.value = newLocation.latitude;
+      observerLon.value = newLocation.longitude;
       sceneManager.setSkyNorth(observer.longitude, observer.latitude);
     };
 
@@ -122,6 +134,7 @@ export default {
       if (groundManager && groundManager.groundMesh) {
         const newVisible = !groundManager.groundMesh.visible;
         groundManager.setVisible(newVisible);
+        terrainOn.value = newVisible;
       }
     };
 
@@ -352,8 +365,11 @@ export default {
       overlayOpacity,
       overlayMode,
       setMode,
+      observerLat,
+      observerLon,
       onTimeSelectorReady,
       isTracking,
+      terrainOn,
       onToggleTracking,
     };
   }
@@ -369,12 +385,15 @@ export default {
 
 #hud {
   position: absolute;
-  top: 10px;
+  top: 60px;
   left: 10px;
   color: white;
-  z-index: 999;
-  background: rgba(0, 0, 0, 0.5);
+  z-index: 99;
+  background: rgba(0, 0, 0, 0.4);
   padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 0.85em;
+  pointer-events: none;
 }
 
 #time-selector-wrapper {

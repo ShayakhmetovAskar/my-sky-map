@@ -19,10 +19,11 @@
 
 <script setup>
 import { computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '@/composables/useAuth'
 
 const route = useRoute()
+const router = useRouter()
 const { isAuthenticated, user, login, logout, handleCallback, initAuth } = useAuth()
 
 const showAuthBar = computed(() => route.name !== 'Scene' && route.name !== 'SceneDisplay')
@@ -32,8 +33,16 @@ onMounted(async () => {
 
   const params = new URLSearchParams(window.location.search)
   if (params.has('code')) {
-    await handleCallback(params.get('code'), params.get('state'))
+    const success = await handleCallback(params.get('code'), params.get('state'))
     history.replaceState({}, '', window.location.pathname)
+
+    if (success) {
+      const redirect = sessionStorage.getItem('auth_redirect')
+      sessionStorage.removeItem('auth_redirect')
+      if (redirect) {
+        router.push(redirect)
+      }
+    }
   }
 })
 </script>

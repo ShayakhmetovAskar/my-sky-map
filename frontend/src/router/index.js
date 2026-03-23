@@ -36,6 +36,7 @@ router.beforeEach((to) => {
     if (to.meta.requiresAuth) {
         const { getToken, login } = useAuth()
         if (!getToken()) {
+            sessionStorage.setItem('auth_redirect', to.fullPath)
             login()
             return false
         }

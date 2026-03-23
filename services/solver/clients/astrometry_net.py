@@ -69,7 +69,7 @@ class AstrometryNetClient:
         logger.info("Uploaded %s → submission %s", file_path.name, subid)
         return subid
 
-    async def wait_for_job(self, subid: int, timeout: int = 300) -> int:
+    async def wait_for_job(self, subid: int, timeout: int = 600) -> int:
         """Poll submission until a job ID appears."""
         elapsed = 0
         async with httpx.AsyncClient(timeout=30) as client:
@@ -87,7 +87,7 @@ class AstrometryNetClient:
 
         raise AstrometryApiError(f"Submission {subid}: no job after {timeout}s")
 
-    async def wait_for_result(self, job_id: int, timeout: int = 300) -> None:
+    async def wait_for_result(self, job_id: int, timeout: int = 600) -> None:
         """Poll job until it succeeds or fails."""
         elapsed = 0
         async with httpx.AsyncClient(timeout=30) as client:

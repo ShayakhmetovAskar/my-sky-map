@@ -9,6 +9,8 @@
   <SideMenu
     :latitude="observerLat"
     :longitude="observerLon"
+    :terrain="terrainOn"
+    :tracking="isTracking"
     @location-changed="onLocationChanged"
     @toggle-terrain="onTerrainToggle"
     @toggle-tracking="onToggleTracking"

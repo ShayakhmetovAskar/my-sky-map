@@ -2,6 +2,8 @@
   <div id="app">
     <div v-if="showAuthBar" class="auth-bar">
       <template v-if="isAuthenticated">
+        <router-link to="/submissions" class="auth-link">My Submissions</router-link>
+        <router-link to="/solve" class="auth-link">Solve</router-link>
         <span class="auth-user">{{ user?.name }}</span>
         <button class="auth-btn" @click="logout">Logout</button>
       </template>
@@ -64,6 +66,23 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.auth-link {
+  color: #aaa;
+  text-decoration: none;
+  font-size: 0.85em;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+
+.auth-link:hover {
+  color: #fff;
+}
+
+.auth-link.router-link-active {
+  color: #42b983;
 }
 
 .auth-user {

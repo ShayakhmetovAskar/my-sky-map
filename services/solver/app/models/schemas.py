@@ -68,12 +68,14 @@ class SubmissionSummary(BaseModel):
 
     id: UUID
     status: SubmissionStatus
+    filename: str
     created_at: AwareDatetime
     updated_at: AwareDatetime
-    object_key: str
+    thumbnail_url: Optional[str] = None
 
 
 class SubmissionDetailed(SubmissionSummary):
+    object_key: str
     tasks: list[TaskSummary] = []
 
 

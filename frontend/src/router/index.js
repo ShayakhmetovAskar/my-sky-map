@@ -14,6 +14,12 @@ const routes = [
         props: true,
     },
     {
+        path: '/submissions',
+        name: 'Submissions',
+        component: () => import('@/views/Submissions.vue'),
+        meta: { requiresAuth: true },
+    },
+    {
         path: '/solve',
         name: 'Solve',
         component: () => import('@/views/Solve.vue'),

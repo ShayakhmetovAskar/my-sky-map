@@ -51,6 +51,7 @@ class Pipeline:
             solve_result = await self.solver.solve(image_path, options)
             mesh_data = self._generate_mesh(image_path, solve_result.wcs_path)
             result = self._upload_results(output_prefix, solve_result, mesh_data, work_dir)
+            result["original_image_url"] = self.storage.generate_presigned_download_url(object_key)
 
             logger.info("Task %s completed: ra=%.4f, dec=%.4f", task_id, result["center_ra"], result["center_dec"])
             return result

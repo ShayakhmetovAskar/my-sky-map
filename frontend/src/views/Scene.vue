@@ -417,24 +417,26 @@ export default {
 }
 
 .overlay-controls {
-  background: rgba(28, 28, 36, 0.95);
-  padding: 12px;
+  position: fixed;
+  right: 12px;
+  bottom: 80px;
+  z-index: 100;
+  background: rgba(12, 12, 18, 0.92);
+  backdrop-filter: blur(16px);
+  padding: 10px;
   border-radius: 12px;
-  backdrop-filter: blur(10px);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  margin-top: 8px;
 }
 
 .overlay-mode-toggle {
   display: flex;
+  flex-direction: column;
   gap: 4px;
   margin-bottom: 8px;
 }
 
 .overlay-mode-toggle button {
-  flex: 1;
-  padding: 4px 8px;
+  padding: 6px 12px;
   font-size: 0.8em;
   background: rgba(255, 255, 255, 0.1);
   color: #aaa;

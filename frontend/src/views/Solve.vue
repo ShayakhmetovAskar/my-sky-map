@@ -251,6 +251,7 @@ watch(() => route.params.taskId, async (newTaskId) => {
         currentTask.value = null
         file.value = null
         error.value = null
+        isLoading.value = false
         return
     }
     if (newTaskId !== currentTask.value?.id) {

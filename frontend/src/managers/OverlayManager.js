@@ -7,6 +7,8 @@ export default class OverlayManager {
         this.controls = controls;
         this.textureLoader = new THREE.TextureLoader();
         this.overlays = {};
+        this._textures = {};  // task_id → { original, annotated }
+        this._currentMode = 'original';  // 'original' | 'annotated' | 'off'
     }
 
     async overlay(task_id) {
@@ -27,33 +29,80 @@ export default class OverlayManager {
 
             const geometry = this.createMeshGeometry(meshData);
 
-            // 3. Загружаем текстуру (из presigned URL)
-            const textureUrl = result.original_image_url || result.annotated_image_url;
-            if (!textureUrl) throw new Error('No image URL in result');
-            const texture = await this.loadTexture(textureUrl);
+            // 3. Загружаем обе текстуры параллельно
+            const textures = {};
+            const loadPromises = [];
+
+            if (result.original_image_url) {
+                loadPromises.push(
+                    this.loadTexture(result.original_image_url)
+                        .then(t => textures.original = t)
+                        .catch(e => console.warn('Failed to load original image:', e))
+                );
+            }
+            if (result.annotated_image_url) {
+                loadPromises.push(
+                    this.loadTexture(result.annotated_image_url)
+                        .then(t => textures.annotated = t)
+                        .catch(e => console.warn('Failed to load annotated image:', e))
+                );
+            }
+            await Promise.all(loadPromises);
+
+            const activeTexture = textures[this._currentMode] || textures.original || textures.annotated;
+            if (!activeTexture) throw new Error('No image URL in result');
+
+            this._textures[task_id] = textures;
 
             // 4. Создаем материал и меш
             const material = new THREE.MeshBasicMaterial({
-                map: texture,
+                map: activeTexture,
                 side: THREE.DoubleSide,
                 transparent: true,
-                opacity: 1,
+                opacity: this._currentMode === 'off' ? 0 : 1,
                 depthTest: false,
             });
 
             const mesh = new THREE.Mesh(geometry, material);
             mesh.renderOrder = -10000;
             this.scene.add(mesh);
-            this.overlays[task_id] = mesh; // Сохраняем меш в overlays**
-            
-            this.focusCameraOnMeshCenter(meshData);
+            this.overlays[task_id] = mesh;
 
+            this.focusCameraOnMeshCenter(meshData);
 
             return result;
 
         } catch (error) {
             console.error('Ошибка в overlay:', error);
         }
+    }
+
+    /**
+     * Switch overlay mode: 'original', 'annotated', or 'off'
+     */
+    setOverlayMode(mode) {
+        this._currentMode = mode;
+        for (const task_id in this.overlays) {
+            const mesh = this.overlays[task_id];
+            const textures = this._textures[task_id];
+            if (!mesh || !textures) continue;
+
+            if (mode === 'off') {
+                mesh.material.opacity = 0;
+            } else {
+                const texture = textures[mode] || textures.original;
+                if (texture && mesh.material.map !== texture) {
+                    mesh.material.map = texture;
+                    mesh.material.needsUpdate = true;
+                }
+                // Preserve current opacity from slider
+                if (mesh.material.opacity === 0) mesh.material.opacity = 1;
+            }
+        }
+    }
+
+    getOverlayMode() {
+        return this._currentMode;
     }
 
     getCenterPosition(meshData) {
@@ -148,39 +197,34 @@ export default class OverlayManager {
         for (const task_id in this.overlays) {
             const mesh = this.overlays[task_id];
             if (mesh) {
-                // Удаляем меш из сцены
                 this.scene.remove(mesh);
-
-                // Освобождаем ресурсы
-                mesh.geometry.dispose(); // Удаляем геометрию
-                if (mesh.material.map) {
-                    mesh.material.map.dispose(); // Удаляем текстуру
-                }
-                mesh.material.dispose(); // Удаляем материал
+                mesh.geometry.dispose();
+                mesh.material.dispose();
+            }
+            // Dispose both textures
+            const textures = this._textures[task_id];
+            if (textures) {
+                if (textures.original) textures.original.dispose();
+                if (textures.annotated) textures.annotated.dispose();
             }
         }
-
-        // Очищаем объект overlays
         this.overlays = {};
+        this._textures = {};
     }
 
     removeOverlay(task_id) {
         const mesh = this.overlays[task_id];
         if (mesh) {
-            // Удаляем меш из сцены
             this.scene.remove(mesh);
-
-            // Освобождаем ресурсы
-            mesh.geometry.dispose(); // Удаляем геометрию
-            if (mesh.material.map) {
-                mesh.material.map.dispose(); // Удаляем текстуру
-            }
-            mesh.material.dispose(); // Удаляем материал
-
-            // Удаляем запись из overlays
+            mesh.geometry.dispose();
+            mesh.material.dispose();
             delete this.overlays[task_id];
-        } else {
-            console.warn(`Overlay для task_id ${task_id} не найден.`);
+        }
+        const textures = this._textures[task_id];
+        if (textures) {
+            if (textures.original) textures.original.dispose();
+            if (textures.annotated) textures.annotated.dispose();
+            delete this._textures[task_id];
         }
     }
 

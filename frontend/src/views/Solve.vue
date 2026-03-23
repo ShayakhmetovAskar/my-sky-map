@@ -245,7 +245,15 @@ onUnmounted(() => {
 })
 
 watch(() => route.params.taskId, async (newTaskId) => {
-    if (newTaskId && newTaskId !== currentTask.value?.id) {
+    if (!newTaskId) {
+        // Navigated to /solve without taskId — reset state for new upload
+        stopStatusPolling()
+        currentTask.value = null
+        file.value = null
+        error.value = null
+        return
+    }
+    if (newTaskId !== currentTask.value?.id) {
         stopStatusPolling()
         isLoading.value = true
         try {

@@ -68,7 +68,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useAuth } from '@/composables/useAuth'
 import { AUTH_CONFIG } from '@/settings/auth'
 
@@ -88,6 +88,9 @@ const lat = ref(props.latitude)
 const lon = ref(props.longitude)
 const terrainOn = ref(props.terrain)
 const trackingOn = ref(props.tracking)
+
+watch(() => props.terrain, (v) => terrainOn.value = v)
+watch(() => props.tracking, (v) => trackingOn.value = v)
 const gpsLoading = ref(false)
 
 function emitLocation() {

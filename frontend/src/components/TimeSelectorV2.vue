@@ -178,7 +178,7 @@ export default {
     window.addEventListener('mouseup', this.stopChange)
     this.$emit('ready')
   },
-  beforeDestroy() {
+  beforeUnmount() {
     this.stopTimer()
     this.stopChange()
     window.removeEventListener('mouseup', this.stopChange)

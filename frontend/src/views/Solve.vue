@@ -206,6 +206,7 @@ const handleFileUpload = (event) => {
         error.value = 'File is too large (max 100 MB).'
         return
     }
+    error.value = null
     setFile(f)
 }
 
@@ -220,6 +221,7 @@ const handleDrop = (event) => {
     } else if (droppedFile.size > MAX_FILE_SIZE) {
         error.value = 'File is too large (max 100 MB).'
     } else {
+        error.value = null
         setFile(droppedFile)
     }
 }
@@ -271,7 +273,7 @@ const uploadImage = async () => {
         if (/\.(fits|fit)$/i.test(file.value.name)) {
             contentType = 'application/fits'
         } else if (!contentType || !['image/jpeg', 'image/png'].includes(contentType)) {
-            contentType = 'image/jpeg'
+            contentType = 'application/octet-stream'
         }
         const { data: submission } = await apiClient.post('/submissions', {
             filename: file.value.name,

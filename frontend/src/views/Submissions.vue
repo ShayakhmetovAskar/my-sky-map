@@ -206,6 +206,8 @@ async function loadMore() {
     const data = await fetchSubmissions(submissions.value.length)
     submissions.value.push(...data.items)
     total.value = data.total
+  } catch (e) {
+    error.value = 'Failed to load more: ' + (e.response?.data?.detail || e.message)
   } finally {
     loadingMore.value = false
   }

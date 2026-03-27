@@ -128,7 +128,7 @@
                     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#f44336" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
                 </div>
                 <h3>Solving Failed</h3>
-                <pre v-if="currentTask.error" class="error-detail">{{ currentTask.error.message }}</pre>
+                <pre v-if="currentTask.error" class="error-detail">{{ currentTask.error.message || currentTask.error }}</pre>
             </div>
         </div>
 
@@ -197,7 +197,12 @@ const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100 MB
 
 const handleFileUpload = (event) => {
     const f = event.target.files[0]
-    if (f && f.size > MAX_FILE_SIZE) {
+    if (!f) return
+    if (!ALLOWED_TYPES.includes(f.type) && !ALLOWED_EXTENSIONS.test(f.name)) {
+        error.value = 'Please select an image file (JPEG, PNG, or FITS).'
+        return
+    }
+    if (f.size > MAX_FILE_SIZE) {
         error.value = 'File is too large (max 100 MB).'
         return
     }

@@ -123,7 +123,10 @@
                 <div v-if="annotatedImageUrl" class="annotated-section">
                     <h3>Annotated Image</h3>
                     <div class="annotated-image-wrapper">
-                        <img :src="annotatedImageUrl" alt="Annotated result" />
+                        <div v-if="!annotatedLoaded" class="image-placeholder">
+                            <span class="spinner large"></span>
+                        </div>
+                        <img :src="annotatedImageUrl" alt="Annotated result" @load="annotatedLoaded = true" :class="{ hidden: !annotatedLoaded }" />
                     </div>
                 </div>
             </div>
@@ -177,6 +180,7 @@ const uploadStatus = ref(null)
 const uploadStep = ref(0) // 0=idle, 1=upload, 2=confirm, 3=solve
 const isDragging = ref(false)
 const sceneFullscreen = ref(false)
+const annotatedLoaded = ref(false)
 let statusPollingInterval = null
 
 const POLL_INTERVAL = 2000
@@ -186,7 +190,7 @@ const steps = ['Upload', 'Confirm', 'Solve', 'Done']
 const activeStep = computed(() => {
     if (currentTask.value) {
         const s = currentTask.value.status
-        if (s === 'completed') return 4
+        if (s === 'completed') return 5
         if (s === 'processing' || s === 'pending') return 3
         if (s === 'failed') return 0
     }
@@ -397,6 +401,7 @@ watch(() => route.params.taskId, async (newTaskId) => {
         file.value = null
         error.value = null
         isLoading.value = false
+        annotatedLoaded.value = false
         removeFile()
         return
     }
@@ -804,11 +809,26 @@ watch(() => route.params.taskId, async (newTaskId) => {
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.1);
     background: rgba(0, 0, 0, 0.3);
+    min-height: 200px;
+    position: relative;
 }
 
 .annotated-image-wrapper img {
     width: 100%;
+    max-height: 70vh;
+    object-fit: contain;
     display: block;
+}
+
+.annotated-image-wrapper img.hidden {
+    display: none;
+}
+
+.image-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
 }
 
 /* ─── Error States ────────────────────────────────────────────────────────── */
@@ -916,7 +936,7 @@ watch(() => route.params.taskId, async (newTaskId) => {
 .scene-container {
     position: relative;
     width: 100%;
-    aspect-ratio: 4 / 3;
+    height: 500px;
     border-radius: 12px;
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.1);

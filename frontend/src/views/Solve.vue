@@ -402,11 +402,13 @@ watch(() => route.params.taskId, async (newTaskId) => {
         error.value = null
         isLoading.value = false
         annotatedLoaded.value = false
+        sceneFullscreen.value = false
         removeFile()
         return
     }
     if (String(newTaskId) !== String(currentTask.value?.id)) {
         stopStatusPolling()
+        sceneFullscreen.value = false
         isLoading.value = true
         try {
             const data = await fetchTaskStatus(newTaskId)

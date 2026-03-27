@@ -75,71 +75,92 @@ export default {
 </script>
 
 <style scoped>
-/* Максимально простые стили без красот */
 .debug-panel {
   position: fixed;
-  top: 10px;
-  right: 10px;
-  background: white;
-  border: 1px solid #ccc;
+  bottom: 12px;
+  left: 12px;
+  background: rgba(18, 18, 24, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
   padding: 0;
   z-index: 10000;
   font-family: monospace;
   font-size: 12px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  min-width: 180px;
 }
 
 .debug-header {
-  background: #f0f0f0;
-  padding: 5px 10px;
+  padding: 8px 12px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #ccc;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: #888;
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }
 
 .debug-header button {
   background: none;
   border: none;
-  font-size: 18px;
+  color: #666;
+  font-size: 16px;
   cursor: pointer;
-  padding: 0;
-  width: 20px;
-  height: 20px;
-  line-height: 18px;
+  padding: 2px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.debug-header button:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .debug-content {
-  padding: 10px;
+  padding: 8px 12px;
 }
 
 .debug-content label {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   cursor: pointer;
   user-select: none;
-  margin: 5px 0;
+  color: #ccc;
+  font-size: 0.85em;
+  padding: 4px 0;
 }
 
 .debug-content input[type="checkbox"] {
-  margin-right: 8px;
+  accent-color: #42b983;
 }
 
-/* Простая кнопка открытия */
 .debug-toggle-btn {
   position: fixed;
-  top: 10px;
-  right: 10px;
-  width: 30px;
-  height: 30px;
-  background: #f0f0f0;
-  border: 1px solid #ccc;
+  bottom: 12px;
+  left: 12px;
+  width: 32px;
+  height: 32px;
+  background: rgba(28, 28, 36, 0.8);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #666;
   font-family: monospace;
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
   z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
 }
 
 .debug-toggle-btn:hover {
-  background: #e0e0e0;
+  background: rgba(28, 28, 36, 0.95);
+  color: #42b983;
+  border-color: rgba(66, 185, 131, 0.3);
 }
 </style>

@@ -67,6 +67,10 @@
                 <span class="spinner large"></span>
                 <p class="processing-text">{{ currentTask.status === 'pending' ? 'Queued...' : 'Solving your image...' }}</p>
                 <p class="processing-sub">This may take a few minutes</p>
+                <a v-if="currentTask.result?.astrometry_job_url" :href="currentTask.result.astrometry_job_url" target="_blank" rel="noopener" class="nova-link">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                    View on nova.astrometry.net
+                </a>
             </div>
 
             <div v-if="currentTask.status === 'completed'" class="result">
@@ -115,6 +119,11 @@
                     </div>
                 </div>
 
+                <a v-if="parsedResult?.astrometry_job_url" :href="parsedResult.astrometry_job_url" target="_blank" rel="noopener" class="nova-link">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                    View on nova.astrometry.net
+                </a>
+
                 <div v-if="annotatedImageUrl" class="annotated-section">
                     <h3>Annotated Image</h3>
                     <div class="annotated-image-wrapper">
@@ -139,9 +148,16 @@
         </div>
     </div>
 
-    <div v-if="currentTask?.status === 'completed'" class="scene-wrapper">
-        <div style="width: 95%; margin: 0 auto;">
-            <Scene :taskId="currentTask.id" />
+    <div v-if="currentTask?.status === 'completed'" class="scene-section" :class="{ fullscreen: sceneFullscreen }">
+        <div class="scene-header">
+            <h3>Sky View</h3>
+            <button class="fullscreen-btn" @click="sceneFullscreen = !sceneFullscreen" :title="sceneFullscreen ? 'Exit fullscreen' : 'Fullscreen'">
+                <svg v-if="!sceneFullscreen" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+                <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/></svg>
+            </button>
+        </div>
+        <div class="scene-container">
+            <Scene :taskId="String(currentTask.id)" :embedded="!sceneFullscreen" />
         </div>
     </div>
 </template>
@@ -164,6 +180,7 @@ const error = ref(null)
 const uploadStatus = ref(null)
 const uploadStep = ref(0) // 0=idle, 1=upload, 2=confirm, 3=solve
 const isDragging = ref(false)
+const sceneFullscreen = ref(false)
 let statusPollingInterval = null
 
 const POLL_INTERVAL = 2000
@@ -427,6 +444,7 @@ watch(() => route.params.taskId, async (newTaskId) => {
     background: rgba(18, 18, 24, 0.6);
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.08);
+    overflow: hidden;
 }
 
 .step {
@@ -437,7 +455,7 @@ watch(() => route.params.taskId, async (newTaskId) => {
 }
 
 .step:last-child {
-    flex: 0;
+    flex: 0 0 auto;
 }
 
 .step-circle {
@@ -835,20 +853,124 @@ watch(() => route.params.taskId, async (newTaskId) => {
     font-size: 0.9em;
 }
 
-/* ─── Scene Wrapper ───────────────────────────────────────────────────────── */
+/* ─── Nova Link ───────────────────────────────────────────────────────────── */
 
-.scene-wrapper {
-    width: 100%;
-    max-width: 100%;
-    overflow: hidden;
-    position: relative;
-    margin: 20px 0;
+.nova-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #42b983;
+    font-size: 0.85em;
+    text-decoration: none;
+    margin-top: 1rem;
+    padding: 6px 12px;
+    border-radius: 6px;
+    background: rgba(66, 185, 131, 0.08);
+    border: 1px solid rgba(66, 185, 131, 0.2);
+    transition: all 0.15s;
 }
 
-.scene-wrapper :deep(canvas) {
-    max-width: 100%;
-    height: auto !important;
+.nova-link:hover {
+    background: rgba(66, 185, 131, 0.15);
+    border-color: rgba(66, 185, 131, 0.4);
+}
+
+/* ─── Scene Section ───────────────────────────────────────────────────────── */
+
+.scene-section {
+    max-width: 800px;
+    margin: 2rem auto;
+    padding: 0 20px;
+}
+
+.scene-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.scene-header h3 {
+    color: #ccc;
+    font-size: 1em;
+    margin: 0;
+}
+
+.fullscreen-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #aaa;
+    padding: 6px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+}
+
+.fullscreen-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+}
+
+.scene-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: #000;
+}
+
+.scene-container :deep(canvas) {
+    width: 100% !important;
+    height: 100% !important;
     display: block;
+}
+
+.scene-container :deep(.three-container) {
+    width: 100%;
+    height: 100%;
+}
+
+/* Fullscreen mode */
+.scene-section.fullscreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    z-index: 2000;
+    background: #000;
+}
+
+.scene-section.fullscreen .scene-header {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 10;
+    margin: 0;
+}
+
+.scene-section.fullscreen .scene-header h3 {
+    display: none;
+}
+
+.scene-section.fullscreen .fullscreen-btn {
+    background: rgba(12, 12, 18, 0.8);
+    backdrop-filter: blur(8px);
+}
+
+.scene-section.fullscreen .scene-container {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    border: none;
+    aspect-ratio: auto;
 }
 
 /* ─── Responsive ──────────────────────────────────────────────────────────── */

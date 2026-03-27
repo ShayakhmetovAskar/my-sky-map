@@ -86,6 +86,9 @@ class Pipeline:
             "orientation": solve_result.orientation,
         }
 
+        if solve_result.astrometry_job_id:
+            result["astrometry_job_url"] = f"https://nova.astrometry.net/status/{solve_result.astrometry_job_id}"
+
         if solve_result.annotated_image_path and solve_result.annotated_image_path.exists():
             key = f"{output_prefix}/annotated.png"
             self.storage.upload_file(key, str(solve_result.annotated_image_path), "image/png")

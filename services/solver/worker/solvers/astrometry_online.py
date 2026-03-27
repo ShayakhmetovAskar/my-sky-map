@@ -51,6 +51,7 @@ class AstrometryOnlineSolver(BaseSolver):
                 orientation=cal["orientation"],
                 annotated_image_path=annotated_path,
                 wcs_path=wcs_path,
+                astrometry_job_id=job_id,
             )
 
         except AstrometryApiError as e:

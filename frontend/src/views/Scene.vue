@@ -1,12 +1,12 @@
 <template>
   <div class="three-container" ref="threeContainer"></div>
 
-  <div id="hud">
+  <div v-if="!embedded" id="hud">
     <pre id="fovValue" ref="hudRef">HUD ...</pre>
   </div>
 
   <!-- Side Menu -->
-  <SideMenu
+  <SideMenu v-if="!embedded"
     :latitude="observerLat"
     :longitude="observerLon"
     :terrain="terrainOn"
@@ -17,7 +17,7 @@
   />
 
   <!-- Bottom Bar: time + ground + tracking -->
-  <TimeSelectorV2 ref="timeSelectorRef"
+  <TimeSelectorV2 v-if="!embedded" ref="timeSelectorRef"
     :ground="terrainOn"
     :tracking="isTracking"
     @time-changed="onTimeChanged"
@@ -27,21 +27,21 @@
   />
 
   <!-- Overlay Controls (when viewing solved image) -->
-  <div v-if="taskId" class="overlay-controls">
+  <div v-if="taskId" class="overlay-controls" :class="{ 'overlay-embedded': embedded }">
     <div class="overlay-mode-toggle">
       <button :class="{ active: overlayMode === 'original' }" @click="setMode('original')">Original</button>
       <button :class="{ active: overlayMode === 'annotated' }" @click="setMode('annotated')">Annotated</button>
       <button :class="{ active: overlayMode === 'off' }" @click="setMode('off')">Off</button>
     </div>
-    <div v-if="overlayMode !== 'off'" class="slider-with-value">
+    <div class="slider-with-value" :class="{ disabled: overlayMode === 'off' }">
       <input type="range" min="0" max="1" step="0.01" v-model="overlayOpacity" @input="updateOverlayOpacity"
-        class="transparency-slider" />
+        class="transparency-slider" :disabled="overlayMode === 'off'" />
       <span class="opacity-value">{{ Math.round(overlayOpacity * 100) }}%</span>
     </div>
   </div>
 
   <!-- Debug Panel -->
-  <DebugPanel />
+  <DebugPanel v-if="!embedded" />
 
 
 </template>
@@ -77,7 +77,11 @@ export default {
   props: {
     taskId: {
       type: [String],
-      required: true // or default: null if null is valid
+      required: true
+    },
+    embedded: {
+      type: Boolean,
+      default: false
     }
   },
   setup(props) {
@@ -501,5 +505,15 @@ export default {
   min-width: 40px;
   font-size: 0.9em;
   font-weight: 500;
+}
+
+.overlay-embedded {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+}
+
+.slider-with-value.disabled {
+  opacity: 0.35;
 }
 </style>

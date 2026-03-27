@@ -17,6 +17,7 @@ class SolveResult:
     num_stars_matched: int = 0
     annotated_image_path: Optional[Path] = None
     wcs_path: Optional[Path] = None
+    astrometry_job_id: Optional[int] = None
 
 
 class BaseSolver(ABC):

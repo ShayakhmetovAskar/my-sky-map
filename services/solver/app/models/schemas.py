@@ -108,7 +108,12 @@ class TaskSummary(BaseModel):
 
 
 class TaskDetailed(TaskSummary):
-    result: Optional[dict[str, Any]] = Field(None, description="Arbitrary solver result object. Structure may evolve.")
+    result: Optional[dict[str, Any]] = Field(
+        None,
+        description="Solver result. Keys: center_ra, center_dec, pixel_scale, orientation, "
+                    "field_of_view, original_image_key, annotated_image_key, wcs_key, mesh_json_key, "
+                    "astrometry_job_url. URL keys are generated on read.",
+    )
     error: Optional[TaskError] = Field(None, description="Present when status is failed")
 
 

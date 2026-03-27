@@ -162,6 +162,7 @@ const isUploading = ref(false)
 const isLoading = ref(false)
 const error = ref(null)
 const uploadStatus = ref(null)
+const uploadStep = ref(0) // 0=idle, 1=upload, 2=confirm, 3=solve
 const isDragging = ref(false)
 let statusPollingInterval = null
 
@@ -173,16 +174,10 @@ const activeStep = computed(() => {
     if (currentTask.value) {
         const s = currentTask.value.status
         if (s === 'completed') return 4
-        if (s === 'processing') return 3
-        if (s === 'pending') return 3
+        if (s === 'processing' || s === 'pending') return 3
         if (s === 'failed') return 0
     }
-    if (!uploadStatus.value) return 0
-    if (uploadStatus.value === 'Creating submission...') return 1
-    if (uploadStatus.value === 'Uploading file...') return 1
-    if (uploadStatus.value === 'Confirming...') return 2
-    if (uploadStatus.value === 'Starting solver...') return 3
-    return 0
+    return uploadStep.value
 })
 
 const parsedResult = computed(() => {
@@ -198,8 +193,15 @@ const annotatedImageUrl = computed(() => {
 
 // ─── File handling ───────────────────────────────────────────────────────────
 
+const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100 MB
+
 const handleFileUpload = (event) => {
-    setFile(event.target.files[0])
+    const f = event.target.files[0]
+    if (f && f.size > MAX_FILE_SIZE) {
+        error.value = 'File is too large (max 100 MB).'
+        return
+    }
+    setFile(f)
 }
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/fits']
@@ -208,10 +210,12 @@ const ALLOWED_EXTENSIONS = /\.(jpg|jpeg|png|fits|fit)$/i
 const handleDrop = (event) => {
     isDragging.value = false
     const droppedFile = event.dataTransfer.files[0]
-    if (droppedFile && (ALLOWED_TYPES.includes(droppedFile.type) || ALLOWED_EXTENSIONS.test(droppedFile.name))) {
-        setFile(droppedFile)
-    } else {
+    if (!droppedFile || (!ALLOWED_TYPES.includes(droppedFile.type) && !ALLOWED_EXTENSIONS.test(droppedFile.name))) {
         error.value = 'Please drop an image file (JPEG, PNG, or FITS).'
+    } else if (droppedFile.size > MAX_FILE_SIZE) {
+        error.value = 'File is too large (max 100 MB).'
+    } else {
+        setFile(droppedFile)
     }
 }
 
@@ -256,6 +260,7 @@ const uploadImage = async () => {
 
     try {
         // Step 1: Create submission
+        uploadStep.value = 1
         uploadStatus.value = 'Creating submission...'
         let contentType = file.value.type
         if (/\.(fits|fit)$/i.test(file.value.name)) {
@@ -279,10 +284,12 @@ const uploadImage = async () => {
         if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status} ${uploadRes.statusText}`)
 
         // Step 3: Confirm upload
+        uploadStep.value = 2
         uploadStatus.value = 'Confirming...'
         await apiClient.post(`/submissions/${submission.submission_id}/confirm`)
 
         // Step 4: Create task
+        uploadStep.value = 3
         uploadStatus.value = 'Starting solver...'
         const { data: task } = await apiClient.post('/tasks', {
             submission_id: submission.submission_id,
@@ -297,6 +304,7 @@ const uploadImage = async () => {
     } finally {
         isUploading.value = false
         uploadStatus.value = null
+        uploadStep.value = 0
     }
 }
 
@@ -368,7 +376,7 @@ watch(() => route.params.taskId, async (newTaskId) => {
         removeFile()
         return
     }
-    if (newTaskId !== currentTask.value?.id) {
+    if (String(newTaskId) !== String(currentTask.value?.id)) {
         stopStatusPolling()
         isLoading.value = true
         try {

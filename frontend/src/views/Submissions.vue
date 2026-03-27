@@ -12,7 +12,7 @@
         @click="activeFilter = f.value"
       >
         {{ f.label }}
-        <span v-if="f.value !== 'all' && countByStatus[f.value]" class="filter-count">{{ countByStatus[f.value] }}</span>
+        <span v-if="f.value !== 'all' && countByStatus[f.value] && submissions.length >= total" class="filter-count">{{ countByStatus[f.value] }}</span>
       </button>
     </div>
 

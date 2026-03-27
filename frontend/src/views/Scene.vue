@@ -515,6 +515,5 @@ export default {
 
 .slider-with-value.disabled {
   opacity: 0.35;
-  pointer-events: none;
 }
 </style>

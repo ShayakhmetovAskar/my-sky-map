@@ -87,7 +87,8 @@ class Pipeline:
         }
 
         if solve_result.astrometry_job_id:
-            result["astrometry_job_url"] = f"https://nova.astrometry.net/status/{solve_result.astrometry_job_id}"
+            base = settings.astrometry_api_url.rstrip("/").removesuffix("/api")
+            result["astrometry_job_url"] = f"{base}/status/{solve_result.astrometry_job_id}"
 
         if solve_result.annotated_image_path and solve_result.annotated_image_path.exists():
             key = f"{output_prefix}/annotated.png"

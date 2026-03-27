@@ -67,10 +67,6 @@
                 <span class="spinner large"></span>
                 <p class="processing-text">{{ currentTask.status === 'pending' ? 'Queued...' : 'Solving your image...' }}</p>
                 <p class="processing-sub">This may take a few minutes</p>
-                <a v-if="currentTask.result?.astrometry_job_url" :href="currentTask.result.astrometry_job_url" target="_blank" rel="noopener" class="nova-link">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                    View on nova.astrometry.net
-                </a>
             </div>
 
             <div v-if="currentTask.status === 'completed'" class="result">
@@ -368,7 +364,10 @@ const stopStatusPolling = () => {
 
 // ─── Lifecycle ───────────────────────────────────────────────────────────────
 
+const onKeydown = (e) => { if (e.key === 'Escape') sceneFullscreen.value = false }
+
 onMounted(async () => {
+    window.addEventListener('keydown', onKeydown)
     const taskId = route.params.taskId
     if (taskId) {
         isLoading.value = true
@@ -387,6 +386,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
     stopStatusPolling()
+    window.removeEventListener('keydown', onKeydown)
     if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
 })
 

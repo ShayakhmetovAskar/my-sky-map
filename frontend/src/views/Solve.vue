@@ -162,7 +162,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import apiClient from '@/utils/apiClient'
 
@@ -368,16 +368,19 @@ const stopStatusPolling = () => {
 
 // ─── Lifecycle ───────────────────────────────────────────────────────────────
 
+function dispatchResize() {
+    nextTick(() => window.dispatchEvent(new Event('resize')))
+}
+
 function toggleFullscreen() {
     sceneFullscreen.value = !sceneFullscreen.value
-    // Let CSS apply, then trigger resize so renderer updates canvas size
-    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
+    dispatchResize()
 }
 
 const onKeydown = (e) => {
     if (e.key === 'Escape' && sceneFullscreen.value) {
         sceneFullscreen.value = false
-        requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
+        dispatchResize()
     }
 }
 

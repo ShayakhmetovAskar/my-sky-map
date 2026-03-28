@@ -384,3 +384,42 @@ async def test_s10_no_identity_rejected(real_storage):
     finally:
         app.dependency_overrides.clear()
         await test_engine.dispose()
+
+
+# ─── S11: Invalid anonymous ID format → 400 ──────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_s11_invalid_anon_id_rejected(real_storage):
+    """Malformed X-Anonymous-Id (not UUID) returns 400, not accepted."""
+    test_engine = create_async_engine(TEST_DB_URL, echo=False)
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def override_get_db():
+        async with session_factory() as session:
+            yield session
+
+    try:
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_storage] = lambda: real_storage
+        app.dependency_overrides.pop(get_user_id, None)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            # Path traversal attempt
+            resp1 = await client.get("/submissions", headers={"X-Anonymous-Id": "../../etc/passwd"})
+            assert resp1.status_code == 400
+
+            # SQL-like injection
+            resp2 = await client.get("/submissions", headers={"X-Anonymous-Id": "'; DROP TABLE submissions;--"})
+            assert resp2.status_code == 400
+
+            # Empty string
+            resp3 = await client.get("/submissions", headers={"X-Anonymous-Id": ""})
+            assert resp3.status_code == 401  # empty header treated as missing
+
+            # Valid UUID works
+            resp4 = await client.get("/submissions", headers={"X-Anonymous-Id": "11111111-1111-4111-a111-111111111111"})
+            assert resp4.status_code == 200
+
+    finally:
+        app.dependency_overrides.clear()
+        await test_engine.dispose()

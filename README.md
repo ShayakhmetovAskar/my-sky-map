@@ -1,1 +1,11 @@
-stellarium-like sky map [demo map](https://skymap-frontend.website.yandexcloud.net) [demo overlay 1](https://skymapdev.afsh.space/solve/b4479841-a440-472a-9eed-f32bc18265fd) [demo overlay 2](https://skymapdev.afsh.space/b4479841-a440-472a-9eed-f32bc18265fd)
+# Skymap
+
+3D sky map with plate solving. Users upload astronomy photos, the system solves them via astrometry.net and overlays results onto a sky sphere.
+
+Features:
+- Planetarium with real-time rendering
+- Plate solving through astrometry.net
+- Photo overlay on sky coordinates
+
+**Demo:** https://skymap-app.afsh.space
+

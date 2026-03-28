@@ -310,7 +310,6 @@ export class MeshLoader {
                     mesh.material.uniforms.map.value = texture;
                     mesh.material.uniforms.mapOffset.value.set(texture.offset.x, texture.offset.y);
                     mesh.material.uniforms.mapRepeat.value.set(texture.repeat.x, texture.repeat.y);
-                    mesh.material.needsUpdate = true;
                 }
             }
 

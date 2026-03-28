@@ -19,14 +19,17 @@ export default class SceneManager {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.sortObjects = true;
     this.renderer.setPixelRatio(window.devicePixelRatio);
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+
+    const w = container.clientWidth || window.innerWidth;
+    const h = container.clientHeight || window.innerHeight;
+    this.renderer.setSize(w, h);
 
     container.appendChild(this.renderer.domElement);
 
 
     this.camera = new THREE.PerspectiveCamera(
       120,                                     // FOV
-      window.innerWidth / window.innerHeight,  // aspect
+      w / h,                                   // aspect
       0.1,                                     // near
       1000                                      // far
     );
@@ -41,8 +44,8 @@ export default class SceneManager {
   }
 
   onWindowResize() {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const width = this.container.clientWidth || window.innerWidth;
+    const height = this.container.clientHeight || window.innerHeight;
 
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();

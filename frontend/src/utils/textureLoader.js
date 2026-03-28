@@ -2,6 +2,7 @@ import { LRUCache } from "./LRUCache";
 import * as THREE from 'three';
 import { heal2equatorial, hipspix2healpix, isNorthAdjacent } from '@/utils/healpix.js';
 import { API_CONFIG } from '@/settings/api';
+import { vertexShader as dssTileVertex, fragmentShader as dssTileFragment } from '@/shaders/dssTile';
 import APP_SETTINGS from '@/settings/appSettings';
 import debugSettings from '@/settings/debugSettings.js';
 import { createTileBoundsGeometry } from '@/utils/algos.js';
@@ -302,11 +303,14 @@ export class MeshLoader {
 
             let mesh = this.meshCache.get(key);
 
-            if (mesh?.material?.map && !mesh.material.map.userData) {
+            const currentTex = mesh?.material?.uniforms?.map?.value;
+            if (currentTex && !currentTex.userData) {
                 const texture = this.textureLoader.getTexture(order, pix);
                 if (texture.userData) {
-                    mesh.material.map = texture;
-                    mesh.material.map.needsUpdate = true;
+                    mesh.material.uniforms.map.value = texture;
+                    mesh.material.uniforms.mapOffset.value.set(texture.offset.x, texture.offset.y);
+                    mesh.material.uniforms.mapRepeat.value.set(texture.repeat.x, texture.repeat.y);
+                    mesh.material.needsUpdate = true;
                 }
             }
 
@@ -356,11 +360,16 @@ export class MeshLoader {
         let texture = this.textureLoader.getTexture(norder, pix);
 
         const geometry = this.createTileGeometry(norder, pix);
-        const material = new THREE.MeshStandardMaterial({
-            map: texture,
-            side: THREE.DoubleSide, 
+        const material = new THREE.ShaderMaterial({
+            uniforms: {
+                map: { value: texture },
+                mapOffset: { value: new THREE.Vector2(texture.offset.x, texture.offset.y) },
+                mapRepeat: { value: new THREE.Vector2(texture.repeat.x, texture.repeat.y) },
+            },
+            vertexShader: dssTileVertex,
+            fragmentShader: dssTileFragment,
+            side: THREE.DoubleSide,
             depthTest: false,
-            transparent: false,
         });
 
         const mesh = new THREE.Mesh(geometry, material);

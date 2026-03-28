@@ -11,7 +11,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.dependencies import get_current_user, get_db, get_storage
+from app.dependencies import get_current_user, get_user_id, get_db, get_storage
 from app.main import app
 from app.services.storage import StorageService
 
@@ -61,6 +61,7 @@ async def client(mock_storage):
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_user_id] = lambda: TEST_USER
     app.dependency_overrides[get_current_user] = lambda: TEST_USER
     app.dependency_overrides[get_storage] = lambda: mock_storage
 

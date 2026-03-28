@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .routers import submissions, tasks, stars
+from .routers import auth, submissions, tasks, stars
 
 app = FastAPI(
     title="Plate Solver Service",
@@ -23,6 +23,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(submissions.router)
 app.include_router(tasks.router)
 app.include_router(stars.router)

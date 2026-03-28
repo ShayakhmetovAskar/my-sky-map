@@ -15,12 +15,14 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.dependencies import get_current_user, get_db, get_storage
+from app.dependencies import get_current_user, get_user_id, get_db, get_storage
 from app.main import app
 from app.services.storage import StorageService
 from worker.solvers.base import BaseSolver, SolveResult
 
 TEST_USER = "scenario-user-001"
+ANON_USER = "anon:test-anon-uuid-001"
+AUTH_USER = "zitadel-user-123"
 TEST_DB_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql+asyncpg://skymap_user:skymap_password@localhost:5433/skymap_test",
@@ -76,6 +78,7 @@ async def client(real_storage):
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_user_id] = lambda: TEST_USER
     app.dependency_overrides[get_current_user] = lambda: TEST_USER
     app.dependency_overrides[get_storage] = lambda: real_storage
 
@@ -87,6 +90,63 @@ async def client(real_storage):
         yield ac
 
     # Cleanup
+    async with test_engine.begin() as conn:
+        await conn.execute(text("TRUNCATE tasks, submissions, star_aliases, star_catalog CASCADE"))
+
+    app.dependency_overrides.clear()
+    await test_engine.dispose()
+
+
+@pytest.fixture
+async def anon_client(real_storage):
+    """Client that acts as anonymous user."""
+    test_engine = create_async_engine(TEST_DB_URL, echo=False)
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def override_get_db():
+        async with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_user_id] = lambda: ANON_USER
+    app.dependency_overrides[get_storage] = lambda: real_storage
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"X-Anonymous-Id": "test-anon-uuid-001"},
+    ) as ac:
+        yield ac
+
+    async with test_engine.begin() as conn:
+        await conn.execute(text("TRUNCATE tasks, submissions, star_aliases, star_catalog CASCADE"))
+
+    app.dependency_overrides.clear()
+    await test_engine.dispose()
+
+
+@pytest.fixture
+async def auth_client(real_storage):
+    """Client that acts as authenticated user (for merge tests)."""
+    test_engine = create_async_engine(TEST_DB_URL, echo=False)
+    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def override_get_db():
+        async with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_user_id] = lambda: AUTH_USER
+    app.dependency_overrides[get_current_user] = lambda: AUTH_USER
+    app.dependency_overrides[get_storage] = lambda: real_storage
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": "Bearer test-token"},
+    ) as ac:
+        yield ac
+
     async with test_engine.begin() as conn:
         await conn.execute(text("TRUNCATE tasks, submissions, star_aliases, star_catalog CASCADE"))
 

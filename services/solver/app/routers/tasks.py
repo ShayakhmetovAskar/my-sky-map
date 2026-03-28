@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..dependencies import get_current_user, get_db, get_storage
+from ..dependencies import get_user_id, get_db, get_storage
 from ..services.storage import StorageService
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ router = APIRouter(prefix="/tasks", tags=["Tasks"])
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=TaskSummary)
 async def create_task(
     body: CreateTaskRequest,
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Submission).where(Submission.id == body.submission_id, Submission.user_id == user_id)
@@ -56,7 +56,7 @@ async def list_tasks(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     submission_id: Optional[UUID] = Query(None),
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     base = select(Task).where(Task.user_id == user_id)
@@ -74,7 +74,7 @@ async def list_tasks(
 @router.get("/{task_id}", response_model=TaskDetailed)
 async def get_task(
     task_id: UUID,
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_user_id),
     db: AsyncSession = Depends(get_db),
     storage: StorageService = Depends(get_storage),
 ):
@@ -109,7 +109,7 @@ async def get_task(
 @router.post("/{task_id}/cancel", response_model=TaskSummary)
 async def cancel_task(
     task_id: UUID,
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Task).where(Task.id == task_id, Task.user_id == user_id)

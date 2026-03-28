@@ -183,12 +183,12 @@ async def test_s6_anon_isolation(real_storage):
         app.dependency_overrides[get_storage] = lambda: real_storage
 
         # Anon user A creates submission
-        app.dependency_overrides[get_user_id] = lambda: "anon:aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
+        app.dependency_overrides[get_user_id] = lambda: "anon_aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client_a:
             await create_submission(client_a, "photo_a.jpg")
 
         # Anon user B creates submission
-        app.dependency_overrides[get_user_id] = lambda: "anon:bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"
+        app.dependency_overrides[get_user_id] = lambda: "anon_bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client_b:
             await create_submission(client_b, "photo_b.jpg")
             subs = await list_submissions(client_b)
@@ -196,7 +196,7 @@ async def test_s6_anon_isolation(real_storage):
             assert subs["items"][0]["filename"] == "photo_b.jpg"
 
         # Anon user A only sees their own
-        app.dependency_overrides[get_user_id] = lambda: "anon:aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
+        app.dependency_overrides[get_user_id] = lambda: "anon_aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client_a:
             subs = await list_submissions(client_a)
             assert subs["total"] == 1
@@ -323,12 +323,12 @@ async def test_s9b_two_anon_merge_to_one_account(real_storage):
         app.dependency_overrides[get_storage] = lambda: real_storage
 
         # Anon A creates submission
-        app.dependency_overrides[get_user_id] = lambda: "anon:cccccccc-cccc-4ccc-cccc-cccccccccccc"
+        app.dependency_overrides[get_user_id] = lambda: "anon_cccccccc-cccc-4ccc-cccc-cccccccccccc"
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client_a:
             await create_submission(client_a, "from_chrome.jpg")
 
         # Anon B creates submission
-        app.dependency_overrides[get_user_id] = lambda: "anon:dddddddd-dddd-4ddd-dddd-dddddddddddd"
+        app.dependency_overrides[get_user_id] = lambda: "anon_dddddddd-dddd-4ddd-dddd-dddddddddddd"
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client_b:
             await create_submission(client_b, "from_firefox.jpg")
 

@@ -72,9 +72,9 @@ async def get_user_id(
         return await _validate_token(credentials.credentials)
     # 2. Anonymous header → validate UUID format and return prefixed anon ID
     if x_anonymous_id:
-        if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", x_anonymous_id, re.I):
+        if len(x_anonymous_id) > 36 or not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", x_anonymous_id, re.I):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid anonymous ID format")
-        return f"anon:{x_anonymous_id}"
+        return f"anon_{x_anonymous_id}"
     # 3. Nothing → reject
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

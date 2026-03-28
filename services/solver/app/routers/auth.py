@@ -33,9 +33,15 @@ async def merge_anonymous(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Transfer all submissions/tasks from anonymous identity to authenticated user."""
-    anon_id = f"anon:{body.anonymous_id}"
+    """Transfer all submissions/tasks from anonymous identity to authenticated user.
 
+    Note: S3 object_key paths (users/anon_xxx/...) are NOT renamed — they remain
+    valid because we reference files by object_key, not by user_id. Physical S3
+    cleanup/migration is a separate concern.
+    """
+    anon_id = f"anon_{body.anonymous_id}"
+
+    # Check if anon identity has any data (also serves as idempotency check)
     result_sub = await db.execute(
         update(Submission)
         .where(Submission.user_id == anon_id)

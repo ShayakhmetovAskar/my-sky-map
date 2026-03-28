@@ -144,8 +144,8 @@ async function handleCallback(code, state) {
     sessionStorage.removeItem('pkce_verifier')
     sessionStorage.removeItem('pkce_state')
 
-    // Merge anonymous data — fire-and-forget, don't block login
-    mergeAnonymousData(data.access_token)
+    // Merge anonymous data before navigating
+    await mergeAnonymousData(data.access_token)
 
     return true
   } catch (err) {
@@ -159,23 +159,15 @@ async function mergeAnonymousData(token) {
   if (!anonId) return
 
   try {
-    const API_BASE = import.meta.env.VITE_SOLVER_API_URL || '/api/v1'
-    const res = await fetch(`${API_BASE}/auth/merge`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify({ anonymous_id: anonId }),
-    })
-    if (res.ok) {
-      const data = await res.json()
-      if (data.merged > 0) {
-        console.info(`Merged ${data.merged} anonymous records`)
-      }
-      // Clear anon ID after successful merge
-      clearAnonymousId()
+    const { default: apiClient } = await import('@/utils/apiClient')
+    const { data } = await apiClient.post('/auth/merge',
+      { anonymous_id: anonId },
+      { headers: { Authorization: `Bearer ${token}` } },
+    )
+    if (data.merged > 0) {
+      console.info(`Merged ${data.merged} anonymous records`)
     }
+    clearAnonymousId()
   } catch (e) {
     console.warn('Failed to merge anonymous data:', e)
   }

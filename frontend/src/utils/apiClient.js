@@ -12,7 +12,9 @@ apiClient.interceptors.request.use((config) => {
   const token = getToken()
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
-  } else {
+  } else if (!sessionStorage.getItem('skymap_access_token')) {
+    // Only send anon ID if user was never authenticated in this session.
+    // If token existed but expired — don't fall back to anon, let 401 trigger re-login.
     config.headers['X-Anonymous-Id'] = getAnonymousId()
   }
   return config

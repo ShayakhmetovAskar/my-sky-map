@@ -40,7 +40,8 @@ export default class SceneManager {
 
     this.clock = new THREE.Clock();
 
-    window.addEventListener('resize', this.onWindowResize.bind(this), false);
+    this._onResize = this.onWindowResize.bind(this);
+    window.addEventListener('resize', this._onResize, false);
   }
 
   onWindowResize() {
@@ -129,7 +130,7 @@ export default class SceneManager {
    * Уничтожение SceneManager
    */
   dispose() {
-    window.removeEventListener('resize', this.onWindowResize);
+    window.removeEventListener('resize', this._onResize);
     this.stopAnimationLoop();
     this.renderer.dispose();
   }

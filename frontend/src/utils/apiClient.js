@@ -22,9 +22,9 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      const { getToken, logout } = useAuth()
-      // Only logout if we had a token (don't interfere with anon flow)
-      if (getToken()) {
+      const { isAuthenticated, logout } = useAuth()
+      // Only logout if user was authenticated (don't interfere with anon flow)
+      if (isAuthenticated.value) {
         logout()
       }
     }

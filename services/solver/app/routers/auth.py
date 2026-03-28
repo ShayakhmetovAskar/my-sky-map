@@ -3,7 +3,7 @@
 import logging
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +17,14 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 class MergeRequest(BaseModel):
     anonymous_id: str
+
+    @field_validator("anonymous_id")
+    @classmethod
+    def validate_uuid(cls, v):
+        import re
+        if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", v, re.I):
+            raise ValueError("anonymous_id must be a valid UUID")
+        return v
 
 
 @router.post("/merge")

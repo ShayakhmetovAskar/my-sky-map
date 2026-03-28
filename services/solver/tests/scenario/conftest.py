@@ -21,7 +21,7 @@ from app.services.storage import StorageService
 from worker.solvers.base import BaseSolver, SolveResult
 
 TEST_USER = "scenario-user-001"
-ANON_USER = "anon:test-anon-uuid-001"
+ANON_USER = "anon:00000000-0000-4000-a000-000000000001"
 AUTH_USER = "zitadel-user-123"
 TEST_DB_URL = os.environ.get(
     "DATABASE_URL",
@@ -114,7 +114,7 @@ async def anon_client(real_storage):
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
-        headers={"X-Anonymous-Id": "test-anon-uuid-001"},
+        headers={"X-Anonymous-Id": "00000000-0000-4000-a000-000000000001"},
     ) as ac:
         yield ac
 

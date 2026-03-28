@@ -1,6 +1,7 @@
 """FastAPI dependencies: DB session, current user, services."""
 
 import logging
+import re
 from typing import AsyncGenerator, Optional
 
 from fastapi import Depends, Header, HTTPException, status
@@ -53,7 +54,7 @@ async def _validate_token(token: str) -> str:
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer()),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> str:
     """Strict auth — requires valid JWT. Used for merge endpoint."""
     if not credentials or not credentials.credentials:
@@ -69,8 +70,10 @@ async def get_user_id(
     # 1. JWT present → validate and return Zitadel user_id
     if credentials and credentials.credentials:
         return await _validate_token(credentials.credentials)
-    # 2. Anonymous header → return prefixed anon ID
+    # 2. Anonymous header → validate UUID format and return prefixed anon ID
     if x_anonymous_id:
+        if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", x_anonymous_id, re.I):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid anonymous ID format")
         return f"anon:{x_anonymous_id}"
     # 3. Nothing → reject
     raise HTTPException(

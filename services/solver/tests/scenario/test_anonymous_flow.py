@@ -103,7 +103,7 @@ async def test_s3_merge_transfers_submissions(real_storage):
         app.dependency_overrides[get_current_user] = lambda: AUTH_USER
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as auth:
-            merge_resp = await auth.post("/auth/merge", json={"anonymous_id": "test-anon-uuid-001"})
+            merge_resp = await auth.post("/auth/merge", json={"anonymous_id": "00000000-0000-4000-a000-000000000001"})
             assert merge_resp.status_code == 200
             assert merge_resp.json()["merged"] > 0
 
@@ -143,10 +143,10 @@ async def test_s4_merge_idempotent(real_storage):
         app.dependency_overrides[get_current_user] = lambda: AUTH_USER
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as auth:
-            resp1 = await auth.post("/auth/merge", json={"anonymous_id": "test-anon-uuid-001"})
+            resp1 = await auth.post("/auth/merge", json={"anonymous_id": "00000000-0000-4000-a000-000000000001"})
             assert resp1.json()["merged"] > 0
 
-            resp2 = await auth.post("/auth/merge", json={"anonymous_id": "test-anon-uuid-001"})
+            resp2 = await auth.post("/auth/merge", json={"anonymous_id": "00000000-0000-4000-a000-000000000001"})
             assert resp2.json()["merged"] == 0
 
     finally:
@@ -161,7 +161,7 @@ async def test_s4_merge_idempotent(real_storage):
 @pytest.mark.asyncio
 async def test_s5_merge_empty(auth_client):
     """Merge with non-existent anon ID returns 0."""
-    resp = await auth_client.post("/auth/merge", json={"anonymous_id": "nonexistent-uuid"})
+    resp = await auth_client.post("/auth/merge", json={"anonymous_id": "eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee"})
     assert resp.status_code == 200
     assert resp.json()["merged"] == 0
 
@@ -183,12 +183,12 @@ async def test_s6_anon_isolation(real_storage):
         app.dependency_overrides[get_storage] = lambda: real_storage
 
         # Anon user A creates submission
-        app.dependency_overrides[get_user_id] = lambda: "anon:user-aaa"
+        app.dependency_overrides[get_user_id] = lambda: "anon:aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client_a:
             await create_submission(client_a, "photo_a.jpg")
 
         # Anon user B creates submission
-        app.dependency_overrides[get_user_id] = lambda: "anon:user-bbb"
+        app.dependency_overrides[get_user_id] = lambda: "anon:bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client_b:
             await create_submission(client_b, "photo_b.jpg")
             subs = await list_submissions(client_b)
@@ -196,7 +196,7 @@ async def test_s6_anon_isolation(real_storage):
             assert subs["items"][0]["filename"] == "photo_b.jpg"
 
         # Anon user A only sees their own
-        app.dependency_overrides[get_user_id] = lambda: "anon:user-aaa"
+        app.dependency_overrides[get_user_id] = lambda: "anon:aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client_a:
             subs = await list_submissions(client_a)
             assert subs["total"] == 1
@@ -236,7 +236,7 @@ async def test_s7_anon_empty_after_merge(real_storage):
         app.dependency_overrides[get_user_id] = lambda: AUTH_USER
         app.dependency_overrides[get_current_user] = lambda: AUTH_USER
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as auth:
-            await auth.post("/auth/merge", json={"anonymous_id": "test-anon-uuid-001"})
+            await auth.post("/auth/merge", json={"anonymous_id": "00000000-0000-4000-a000-000000000001"})
 
         # Anon ID now empty
         app.dependency_overrides[get_user_id] = lambda: ANON_USER
@@ -292,7 +292,7 @@ async def test_s9_merge_transfers_tasks(real_storage):
         app.dependency_overrides[get_current_user] = lambda: AUTH_USER
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as auth:
-            merge_resp = await auth.post("/auth/merge", json={"anonymous_id": "test-anon-uuid-001"})
+            merge_resp = await auth.post("/auth/merge", json={"anonymous_id": "00000000-0000-4000-a000-000000000001"})
             assert merge_resp.json()["merged"] > 0
 
             # Task is now accessible under auth user
@@ -323,12 +323,12 @@ async def test_s9b_two_anon_merge_to_one_account(real_storage):
         app.dependency_overrides[get_storage] = lambda: real_storage
 
         # Anon A creates submission
-        app.dependency_overrides[get_user_id] = lambda: "anon:browser-aaa"
+        app.dependency_overrides[get_user_id] = lambda: "anon:cccccccc-cccc-4ccc-cccc-cccccccccccc"
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client_a:
             await create_submission(client_a, "from_chrome.jpg")
 
         # Anon B creates submission
-        app.dependency_overrides[get_user_id] = lambda: "anon:browser-bbb"
+        app.dependency_overrides[get_user_id] = lambda: "anon:dddddddd-dddd-4ddd-dddd-dddddddddddd"
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client_b:
             await create_submission(client_b, "from_firefox.jpg")
 
@@ -337,10 +337,10 @@ async def test_s9b_two_anon_merge_to_one_account(real_storage):
         app.dependency_overrides[get_current_user] = lambda: AUTH_USER
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as auth:
-            resp_a = await auth.post("/auth/merge", json={"anonymous_id": "browser-aaa"})
+            resp_a = await auth.post("/auth/merge", json={"anonymous_id": "cccccccc-cccc-4ccc-cccc-cccccccccccc"})
             assert resp_a.json()["merged"] > 0
 
-            resp_b = await auth.post("/auth/merge", json={"anonymous_id": "browser-bbb"})
+            resp_b = await auth.post("/auth/merge", json={"anonymous_id": "dddddddd-dddd-4ddd-dddd-dddddddddddd"})
             assert resp_b.json()["merged"] > 0
 
             # Both submissions visible

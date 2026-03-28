@@ -144,8 +144,8 @@ async function handleCallback(code, state) {
     sessionStorage.removeItem('pkce_verifier')
     sessionStorage.removeItem('pkce_state')
 
-    // Merge anonymous data into authenticated account
-    await mergeAnonymousData(data.access_token)
+    // Merge anonymous data — fire-and-forget, don't block login
+    mergeAnonymousData(data.access_token)
 
     return true
   } catch (err) {

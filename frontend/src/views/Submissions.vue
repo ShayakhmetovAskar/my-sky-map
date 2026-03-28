@@ -100,7 +100,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, onActivated } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
 import { useRouter } from 'vue-router'
 import apiClient from '@/utils/apiClient'
 
@@ -159,6 +159,10 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  stopAutoRefresh()
+})
+
+onDeactivated(() => {
   stopAutoRefresh()
 })
 

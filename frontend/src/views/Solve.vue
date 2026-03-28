@@ -150,7 +150,7 @@
     <div v-if="currentTask?.status === 'completed'" class="scene-section" :class="{ fullscreen: sceneFullscreen }">
         <div class="scene-header">
             <h3>Sky View</h3>
-            <button class="fullscreen-btn" @click="sceneFullscreen = !sceneFullscreen" :title="sceneFullscreen ? 'Exit fullscreen' : 'Fullscreen'">
+            <button class="fullscreen-btn" @click="toggleFullscreen" :title="sceneFullscreen ? 'Exit fullscreen' : 'Fullscreen'">
                 <svg v-if="!sceneFullscreen" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
                 <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/></svg>
             </button>
@@ -162,7 +162,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import apiClient from '@/utils/apiClient'
 
@@ -368,7 +368,21 @@ const stopStatusPolling = () => {
 
 // ─── Lifecycle ───────────────────────────────────────────────────────────────
 
-const onKeydown = (e) => { if (e.key === 'Escape') sceneFullscreen.value = false }
+function dispatchResize() {
+    nextTick(() => window.dispatchEvent(new Event('resize')))
+}
+
+function toggleFullscreen() {
+    sceneFullscreen.value = !sceneFullscreen.value
+    dispatchResize()
+}
+
+const onKeydown = (e) => {
+    if (e.key === 'Escape' && sceneFullscreen.value) {
+        sceneFullscreen.value = false
+        dispatchResize()
+    }
+}
 
 onMounted(async () => {
     window.addEventListener('keydown', onKeydown)

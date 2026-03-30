@@ -14,7 +14,7 @@
     @location-changed="onLocationChanged"
     @toggle-terrain="onTerrainToggle"
     @toggle-tracking="onToggleTracking"
-    @ra-format-changed="(fmt) => raFormat = fmt"
+    @ra-format-changed="onRaFormatChanged"
   />
 
   <!-- Bottom Bar: time + ground + tracking -->
@@ -100,7 +100,7 @@ export default {
     const terrainOn = ref(true);
     const gridOn = ref(true);
     const gridLabelsRef = ref(null);
-    const raFormat = ref('hours');
+    const raFormat = ref(localStorage.getItem('raFormat') || 'hours');
 
     let sceneManager = null;
     let updateStarsInterval = null;
@@ -170,6 +170,11 @@ export default {
     const onGridToggle = () => {
       gridOn.value = !gridOn.value;
       if (gridManager) gridManager.setVisible(gridOn.value);
+    };
+
+    const onRaFormatChanged = (fmt) => {
+      raFormat.value = fmt;
+      localStorage.setItem('raFormat', fmt);
     };
 
     const onToggleTracking = () => {
@@ -413,6 +418,7 @@ export default {
       gridLabelsRef,
       onToggleTracking,
       onGridToggle,
+      onRaFormatChanged,
     };
   }
 };

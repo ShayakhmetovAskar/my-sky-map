@@ -387,14 +387,21 @@ export default class GridManager {
   }
 
   _fmtRADeg(deg) {
-    if (deg === Math.floor(deg)) return `${deg}°`;
-    return `${deg.toFixed(2)}°`;
+    return `${this._fmtNum(deg)}°`;
   }
 
   _fmtDec(deg) {
-    const sign = deg > 0 ? '+' : deg < 0 ? '' : '';
-    if (deg === Math.floor(deg)) return `${sign}${deg}°`;
-    return `${sign}${deg.toFixed(2)}°`;
+    const sign = deg > 0 ? '+' : '';
+    return `${sign}${this._fmtNum(deg)}°`;
+  }
+
+  _fmtNum(v) {
+    const step = Math.min(this._meridianStep, this._parallelStep);
+    if (step >= 1) return v.toFixed(0);
+    if (step >= 0.1) return v.toFixed(1);
+    if (step >= 0.01) return v.toFixed(2);
+    if (step >= 0.001) return v.toFixed(3);
+    return v.toFixed(4);
   }
 
   dispose() {

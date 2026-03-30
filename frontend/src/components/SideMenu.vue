@@ -46,7 +46,7 @@
               <span>RA format</span>
               <select v-model="raFmt" @change="emit('ra-format-changed', raFmt)" class="ra-format-select">
                 <option value="hours">Hours (0h..23h)</option>
-                <option value="degrees">Degrees (0..345)</option>
+                <option value="degrees">Degrees (0°..360°)</option>
               </select>
             </label>
           </div>
@@ -88,7 +88,7 @@ const props = defineProps({
 
 const emit = defineEmits(['location-changed', 'toggle-terrain', 'toggle-tracking', 'ra-format-changed'])
 
-const raFmt = ref('hours')
+const raFmt = ref(localStorage.getItem('raFormat') || 'hours')
 
 const { isAuthenticated, user, login, logout } = useAuth()
 

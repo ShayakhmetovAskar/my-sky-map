@@ -330,6 +330,60 @@ export function isPoleOnScreen(camera, skyGroup, radius) {
     return false;
 }
 
+export function formatDMS(deg, precision = 0, signed = true) {
+    const sign = signed ? (deg >= 0 ? '+' : '-') : '';
+    const abs = Math.abs(deg);
+    let d = Math.floor(abs);
+    let mFull = (abs - d) * 60;
+    let m = Math.floor(mFull);
+    let s = precision > 0 ? parseFloat(((mFull - m) * 60).toFixed(precision)) : Math.round((mFull - m) * 60);
+    if (s >= 60) { s -= 60; m++; }
+    if (m >= 60) { m -= 60; d++; }
+    if (m === 0 && s === 0) return `${sign}${d}°`;
+    if (s === 0) return `${sign}${d}°${m}'`;
+    return `${sign}${d}°${m}'${precision > 0 ? s.toFixed(precision) : s}"`;
+}
+
+export function formatHMS(deg) {
+    const normalized = ((deg % 360) + 360) % 360;
+    let totalSec = Math.round(normalized / 15 * 3600);
+    if (totalSec >= 86400) totalSec = 0;
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (m === 0 && s === 0) return `${h}h`;
+    if (s === 0) return `${h}h${m}m`;
+    return `${h}h${m}m${s}s`;
+}
+
+export function angularDistance(ra1Deg, dec1Deg, ra2Deg, dec2Deg) {
+    const ra1 = ra1Deg * Math.PI / 180;
+    const dec1 = dec1Deg * Math.PI / 180;
+    const ra2 = ra2Deg * Math.PI / 180;
+    const dec2 = dec2Deg * Math.PI / 180;
+    const cosD = Math.sin(dec1) * Math.sin(dec2) + Math.cos(dec1) * Math.cos(dec2) * Math.cos(ra1 - ra2);
+    return Math.acos(Math.min(1, Math.max(-1, cosD))) * 180 / Math.PI;
+}
+
+export function equatorialToHorizontal(raDeg, decDeg, lstHours, latDeg) {
+    const ha = (lstHours * 15 - raDeg) * Math.PI / 180;
+    const dec = decDeg * Math.PI / 180;
+    const lat = latDeg * Math.PI / 180;
+
+    const sinAlt = Math.sin(dec) * Math.sin(lat) + Math.cos(dec) * Math.cos(lat) * Math.cos(ha);
+    const alt = Math.asin(sinAlt);
+
+    const az = Math.atan2(
+        -Math.cos(dec) * Math.sin(ha),
+        Math.sin(dec) * Math.cos(lat) - Math.cos(dec) * Math.sin(lat) * Math.cos(ha)
+    );
+
+    return {
+        alt: alt * 180 / Math.PI,
+        az: ((az * 180 / Math.PI) + 360) % 360,
+    };
+}
+
 export function calculateSizePx(fov, windowHeight, radius, distance) {
     return 2 * Math.atan(radius / distance) / (fov / 180 * Math.PI) * windowHeight;
 }

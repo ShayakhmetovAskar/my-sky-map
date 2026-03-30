@@ -49,6 +49,17 @@
                 <option value="degrees">Degrees (0°..360°)</option>
               </select>
             </label>
+            <label class="toggle-row">
+              <input type="checkbox" v-model="tooltipOn" @change="onTooltipToggle" />
+              <span>Cursor coordinates</span>
+            </label>
+            <label class="toggle-row">
+              <span>Coordinates</span>
+              <select v-model="coordSys" @change="onCoordSysChange" class="ra-format-select">
+                <option value="equatorial">Equatorial (RA/Dec)</option>
+                <option value="horizontal">Horizontal (Az/Alt)</option>
+              </select>
+            </label>
           </div>
 
           <!-- Navigation -->
@@ -86,9 +97,22 @@ const props = defineProps({
   tracking: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['location-changed', 'toggle-terrain', 'toggle-tracking', 'ra-format-changed'])
+const emit = defineEmits(['location-changed', 'toggle-terrain', 'toggle-tracking', 'ra-format-changed', 'cursor-tooltip-changed', 'coord-system-changed'])
 
 const raFmt = ref(localStorage.getItem('raFormat') || 'hours')
+const tooltipOn = ref(localStorage.getItem('cursorTooltip') !== 'false')
+
+const coordSys = ref(localStorage.getItem('coordSystem') || 'equatorial')
+
+const onTooltipToggle = () => {
+  localStorage.setItem('cursorTooltip', tooltipOn.value)
+  emit('cursor-tooltip-changed', tooltipOn.value)
+}
+
+const onCoordSysChange = () => {
+  localStorage.setItem('coordSystem', coordSys.value)
+  emit('coord-system-changed', coordSys.value)
+}
 
 const { isAuthenticated, user, login, logout } = useAuth()
 

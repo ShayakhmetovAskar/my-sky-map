@@ -34,15 +34,14 @@ class TestCreateSubmission:
     async def test_unauthorized(self, client: AsyncClient):
         # Remove auth override — use raw client without token
         from app.main import app
-        from app.dependencies import get_current_user
-        # Restore real auth (requires Bearer token validation)
-        if get_current_user in app.dependency_overrides:
-            del app.dependency_overrides[get_current_user]
+        from app.dependencies import get_user_id
+        if get_user_id in app.dependency_overrides:
+            del app.dependency_overrides[get_user_id]
 
         from httpx import ASGITransport, AsyncClient as AC
         async with AC(transport=ASGITransport(app=app), base_url="http://test") as raw:
             resp = await raw.post("/submissions", json=VALID_SUBMISSION)
-            assert resp.status_code in (401, 403)
+            assert resp.status_code == 401
 
 
 class TestListSubmissions:
@@ -68,7 +67,7 @@ class TestListSubmissions:
         assert len(resp2.json()["items"]) == 1
 
     async def test_user_isolation(self, client: AsyncClient):
-        from app.dependencies import get_current_user
+        from app.dependencies import get_user_id
         from app.main import app
 
         # User A creates a submission
@@ -79,7 +78,7 @@ class TestListSubmissions:
         assert resp_a.json()["total"] == 1
 
         # Switch to user B
-        app.dependency_overrides[get_current_user] = lambda: "other-user-999"
+        app.dependency_overrides[get_user_id] = lambda: "other-user-999"
 
         # User B does not see it
         resp_b = await client.get("/submissions")
@@ -103,14 +102,14 @@ class TestGetSubmission:
         assert resp.status_code == 404
 
     async def test_other_user(self, client: AsyncClient):
-        from app.dependencies import get_current_user
+        from app.dependencies import get_user_id
         from app.main import app
 
         create = await client.post("/submissions", json=VALID_SUBMISSION)
         sub_id = create.json()["submission_id"]
 
         # Switch to different user
-        app.dependency_overrides[get_current_user] = lambda: "other-user-999"
+        app.dependency_overrides[get_user_id] = lambda: "other-user-999"
 
         resp = await client.get(f"/submissions/{sub_id}")
         assert resp.status_code == 404

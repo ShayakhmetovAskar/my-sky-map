@@ -313,6 +313,23 @@ export function bvToColor(bv) {
 
 
 
+const _poleVec = new THREE.Vector3();
+const POLE_MARGIN = 1.3; // 130% — pole stays "visible" a bit after leaving screen
+
+export function isPoleOnScreen(camera, skyGroup, radius) {
+    for (const sign of [1, -1]) {
+        _poleVec.set(0, radius * sign, 0);
+        _poleVec.applyMatrix4(skyGroup.matrixWorld);
+        _poleVec.project(camera);
+        if (_poleVec.z < 1 &&
+            _poleVec.x >= -POLE_MARGIN && _poleVec.x <= POLE_MARGIN &&
+            _poleVec.y >= -POLE_MARGIN && _poleVec.y <= POLE_MARGIN) {
+            return true;
+        }
+    }
+    return false;
+}
+
 export function calculateSizePx(fov, windowHeight, radius, distance) {
     return 2 * Math.atan(radius / distance) / (fov / 180 * Math.PI) * windowHeight;
 }

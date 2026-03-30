@@ -8,6 +8,9 @@
       <button class="icon-btn" :class="{ active: trackingOn }" @click="$emit('toggle-tracking')" title="Lock tracking">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/></svg>
       </button>
+      <button class="icon-btn" :class="{ active: grid }" @click="$emit('toggle-grid')" title="Coordinate grid">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+      </button>
     </div>
 
     <div class="divider"></div>
@@ -55,6 +58,7 @@ export default {
   props: {
     ground: { type: Boolean, default: true },
     tracking: { type: Boolean, default: false },
+    grid: { type: Boolean, default: true },
   },
   data() {
     return {

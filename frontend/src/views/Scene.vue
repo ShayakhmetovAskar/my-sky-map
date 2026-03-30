@@ -20,10 +20,12 @@
   <TimeSelectorV2 v-if="!embedded" ref="timeSelectorRef"
     :ground="terrainOn"
     :tracking="isTracking"
+    :grid="gridOn"
     @time-changed="onTimeChanged"
     @ready="onTimeSelectorReady"
     @toggle-terrain="onTerrainToggle"
     @toggle-tracking="onToggleTracking"
+    @toggle-grid="onGridToggle"
   />
 
   <!-- Overlay Controls (when viewing solved image) -->
@@ -62,10 +64,8 @@ import SideMenu from '@/components/SideMenu.vue';
 import DebugPanel from '@/components/DebugPanel.vue';
 import HealpixManager from '@/managers/HealpixManager';
 import OverlayManager from '@/managers/OverlayManager';
-import { getWorldUp, equatorial_to_cartesian, cartesian_to_equatorial } from '@/utils/algos';
-
-
-
+import { getWorldUp, equatorial_to_cartesian, cartesian_to_equatorial, isPoleOnScreen } from '@/utils/algos';
+import debugSettings from '@/settings/debugSettings';
 
 export default {
   name: 'Scene',
@@ -94,6 +94,7 @@ export default {
     const overlayMode = ref('original');
     const isTracking = ref(false);
     const terrainOn = ref(true);
+    const gridOn = ref(true);
 
     let sceneManager = null;
     let updateStarsInterval = null;
@@ -158,6 +159,11 @@ export default {
       if (overlayManager) {
         overlayManager.setOverlaysOpacity(overlayOpacity.value);
       }
+    };
+
+    const onGridToggle = () => {
+      gridOn.value = !gridOn.value;
+      if (gridManager) gridManager.setVisible(gridOn.value);
     };
 
     const onToggleTracking = () => {
@@ -255,29 +261,49 @@ export default {
         // Получаем координаты направления взгляда камеры
         const coordinates = controlsManager.getCurrentCameraViewCoordinates();
         
-        if (coordinates) {
-          const trackingInfo = controlsManager.getTrackingInfo();
-          let trackingText = '';
-          
-          if (trackingInfo.mode === 'celestial') {
-            const offsetText = trackingInfo.offset
-              ? `\noffset: RA${trackingInfo.offset.ra >= 0 ? '+' : ''}${trackingInfo.offset.ra.toFixed(5)}° DEC${trackingInfo.offset.dec >= 0 ? '+' : ''}${trackingInfo.offset.dec.toFixed(5)}°`
-              : '';
-            const frozenText = controlsManager.userIsInteracting ? ' [stop rotation]' : '';
-            trackingText = `\ntracking: ${trackingInfo.celestialObject}${offsetText}${frozenText}`;
-          } else if (trackingInfo.mode === 'fixed') {
-            const frozenText = controlsManager.userIsInteracting ? ' [stop rotation]' : '';
-            trackingText = `\ntracking: fixed position ${frozenText}`;
-          }
-            
-          const text =
-            `tiles_loaded: ` + healpixManager.tileManager.currentTiles.length + `\n` +
-            `fov: ${camera.fov.toFixed(2)}` + `\n` +
-            `camera_ra: ${coordinates.ra_deg.toFixed(2)}°` + `\n` +
-            `camera_dec: ${coordinates.dec_deg.toFixed(2)}°` + trackingText;
-          uiManager.updateHUD(text);
+        // Grid update (before HUD so debug info is current)
+        if (gridManager && coordinates) {
+          const poleVisible = isPoleOnScreen(camera, sceneManager.skyGroup, 10);
+          gridManager.update(camera.fov, coordinates.ra_deg, coordinates.dec_deg, poleVisible);
         }
-        
+
+        // HUD
+        if (coordinates) {
+          const lines = [
+            `fov: ${camera.fov.toFixed(2)}`,
+            `ra: ${coordinates.ra_deg.toFixed(2)}°  dec: ${coordinates.dec_deg.toFixed(2)}°`,
+          ];
+
+          // Tracking
+          const ti = controlsManager.getTrackingInfo();
+          if (ti.mode === 'celestial') {
+            const offset = ti.offset
+              ? ` RA${ti.offset.ra >= 0 ? '+' : ''}${ti.offset.ra.toFixed(5)}° DEC${ti.offset.dec >= 0 ? '+' : ''}${ti.offset.dec.toFixed(5)}°`
+              : '';
+            const frozen = controlsManager.userIsInteracting ? ' [frozen]' : '';
+            lines.push(`tracking: ${ti.celestialObject}${offset}${frozen}`);
+          } else if (ti.mode === 'fixed') {
+            const frozen = controlsManager.userIsInteracting ? ' [frozen]' : '';
+            lines.push(`tracking: fixed${frozen}`);
+          }
+
+          // Debug section (toggle via Debug Panel)
+          if (debugSettings.get('showHudDebug')) {
+            lines.push(`--- debug ---`);
+            lines.push(`tiles: ${healpixManager.tileManager.currentTiles.length}`);
+
+            const gd = gridManager ? gridManager.getDebugInfo() : null;
+            if (gd) {
+              lines.push(`grid: pole:${gd.poleVisible ? 'Y' : 'N'} cached:${gd.cached}`);
+              lines.push(`  mer: ${gd.meridians} (${gd.meridianStep}°) par: ${gd.parallels} (${gd.parallelStep}°)`);
+              lines.push(`  outer:±${gd.outermostParallel}° extDec:${gd.effectiveExtremeDec}°`);
+              lines.push(`  pGap:${gd.parallelGap}% mGap:[${gd.narrowestMGap}%..${gd.widestMGap}%]`);
+            }
+          }
+
+          uiManager.updateHUD(lines.join('\n'));
+        }
+
         healpixManager.setOrder(sceneManager.camera);
       });
 
@@ -376,7 +402,9 @@ export default {
       onTimeSelectorReady,
       isTracking,
       terrainOn,
+      gridOn,
       onToggleTracking,
+      onGridToggle,
     };
   }
 };

@@ -277,9 +277,9 @@ export default {
           const date = timeSelectorRef.value?.getSmoothTime(0) || new Date();
           const { ra: lstH } = getZenithRaDecFast(date, observer.latitude, observer.longitude);
           const { alt, az } = equatorialToHorizontal(raDeg, decDeg, lstH, observer.latitude);
-          coordText = `Az ${formatDMS(az)}  Alt ${formatDMS(alt)}`;
+          coordText = `Az ${formatDMS(az, 0, false)}  Alt ${formatDMS(alt)}`;
         } else {
-          const raText = raFormat.value === 'hours' ? formatHMS(raDeg) : formatDMS(raDeg);
+          const raText = raFormat.value === 'hours' ? formatHMS(raDeg) : formatDMS(raDeg, 0, false);
           coordText = `${raText}  ${formatDMS(decDeg)}`;
         }
 
@@ -324,7 +324,7 @@ export default {
           angDistResult.value = 'Shift+click second point...';
         } else {
           const dist = angularDistance(angDistPoint1.value.raDeg, angDistPoint1.value.decDeg, raDeg, decDeg);
-          angDistResult.value = `Distance: ${formatDMS(dist, 1)}`;
+          angDistResult.value = `Distance: ${formatDMS(dist, 1, false)}`;
           angDistPoint1.value = null;
         }
       });

@@ -377,7 +377,7 @@ export default class GridManager {
   }
 
   _fmtRA(deg, format) {
-    return format === 'hours' ? formatHMS(deg) : formatDMS(Math.abs(deg));
+    return format === 'hours' ? formatHMS(deg) : formatDMS(deg, 0, false);
   }
 
   _fmtDec(deg) {

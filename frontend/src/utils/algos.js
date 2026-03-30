@@ -330,8 +330,8 @@ export function isPoleOnScreen(camera, skyGroup, radius) {
     return false;
 }
 
-export function formatDMS(deg, precision = 0) {
-    const sign = deg >= 0 ? '+' : '-';
+export function formatDMS(deg, precision = 0, signed = true) {
+    const sign = signed ? (deg >= 0 ? '+' : '-') : '';
     const abs = Math.abs(deg);
     const d = Math.floor(abs);
     const mFull = (abs - d) * 60;
@@ -344,7 +344,8 @@ export function formatDMS(deg, precision = 0) {
 }
 
 export function formatHMS(deg) {
-    const totalSec = Math.round(deg / 15 * 3600);
+    const normalized = ((deg % 360) + 360) % 360;
+    const totalSec = Math.round(normalized / 15 * 3600);
     const h = Math.floor(totalSec / 3600);
     const m = Math.floor((totalSec % 3600) / 60);
     const s = totalSec % 60;

@@ -333,19 +333,21 @@ export function isPoleOnScreen(camera, skyGroup, radius) {
 export function formatDMS(deg, precision = 0, signed = true) {
     const sign = signed ? (deg >= 0 ? '+' : '-') : '';
     const abs = Math.abs(deg);
-    const d = Math.floor(abs);
-    const mFull = (abs - d) * 60;
-    const m = Math.floor(mFull);
-    const sFull = (mFull - m) * 60;
-    const s = precision > 0 ? sFull.toFixed(precision) : Math.round(sFull);
-    if (m === 0 && +s === 0) return `${sign}${d}°`;
-    if (+s === 0) return `${sign}${d}°${m}'`;
-    return `${sign}${d}°${m}'${s}"`;
+    let d = Math.floor(abs);
+    let mFull = (abs - d) * 60;
+    let m = Math.floor(mFull);
+    let s = precision > 0 ? parseFloat(((mFull - m) * 60).toFixed(precision)) : Math.round((mFull - m) * 60);
+    if (s >= 60) { s -= 60; m++; }
+    if (m >= 60) { m -= 60; d++; }
+    if (m === 0 && s === 0) return `${sign}${d}°`;
+    if (s === 0) return `${sign}${d}°${m}'`;
+    return `${sign}${d}°${m}'${precision > 0 ? s.toFixed(precision) : s}"`;
 }
 
 export function formatHMS(deg) {
     const normalized = ((deg % 360) + 360) % 360;
-    const totalSec = Math.round(normalized / 15 * 3600);
+    let totalSec = Math.round(normalized / 15 * 3600);
+    if (totalSec >= 86400) totalSec = 0;
     const h = Math.floor(totalSec / 3600);
     const m = Math.floor((totalSec % 3600) / 60);
     const s = totalSec % 60;

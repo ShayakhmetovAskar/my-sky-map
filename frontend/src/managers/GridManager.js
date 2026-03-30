@@ -98,7 +98,7 @@ export default class GridManager {
 
     // ── Visible RA range ──
     const cosDec = Math.max(Math.cos(decDeg * DEG2RAD), 1e-10);
-    const raHalf = hFov / 2 * 1.5 / cosDec;
+    const raHalf = Math.min(hFov / 2 * 1.5 / cosDec, 180);
     const raMin = raDeg - raHalf;
     const raMax = raDeg + raHalf;
 
@@ -112,8 +112,9 @@ export default class GridManager {
     const touchedKeys = new Set();
 
     // Parallels: multiples of parallelStep in (-90, 90), within visible range
-    for (let d = -outermostParallel; d <= outermostParallel + 0.0001; d += parallelStep) {
-      const dSnap = Math.round(d * 1e6) / 1e6;
+    const nParallels = Math.round(2 * outermostParallel / parallelStep);
+    for (let i = 0; i <= nParallels; i++) {
+      const dSnap = -outermostParallel + i * parallelStep;
       if (dSnap < decMin || dSnap > decMax) continue;
 
       const key = `p_${dSnap}`;

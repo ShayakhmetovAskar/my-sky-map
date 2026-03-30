@@ -44,7 +44,7 @@
   </div>
 
   <!-- Grid Labels -->
-  <div ref="gridLabelsRef" class="grid-labels"></div>
+  <div v-if="!embedded" ref="gridLabelsRef" class="grid-labels"></div>
 
   <!-- Debug Panel -->
   <DebugPanel v-if="!embedded" />

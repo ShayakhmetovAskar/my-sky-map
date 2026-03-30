@@ -42,6 +42,13 @@
               <input type="checkbox" v-model="trackingOn" @change="$emit('toggle-tracking', trackingOn)" />
               <span>Lock tracking</span>
             </label>
+            <label class="toggle-row">
+              <span>RA format</span>
+              <select v-model="raFmt" @change="emit('ra-format-changed', raFmt)" class="ra-format-select">
+                <option value="hours">Hours (0h..23h)</option>
+                <option value="degrees">Degrees (0..345)</option>
+              </select>
+            </label>
           </div>
 
           <!-- Navigation -->
@@ -79,7 +86,9 @@ const props = defineProps({
   tracking: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['location-changed', 'toggle-terrain', 'toggle-tracking'])
+const emit = defineEmits(['location-changed', 'toggle-terrain', 'toggle-tracking', 'ra-format-changed'])
+
+const raFmt = ref('hours')
 
 const { isAuthenticated, user, login, logout } = useAuth()
 
@@ -301,6 +310,16 @@ function doLogout() {
 }
 
 .toggle-row input { accent-color: #42b983; }
+
+.ra-format-select {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: #ccc;
+  font-size: 0.85em;
+  padding: 2px 4px;
+  margin-left: auto;
+}
 
 .menu-link {
   display: block;

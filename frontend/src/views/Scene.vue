@@ -14,6 +14,7 @@
     @location-changed="onLocationChanged"
     @toggle-terrain="onTerrainToggle"
     @toggle-tracking="onToggleTracking"
+    @ra-format-changed="(fmt) => raFormat = fmt"
   />
 
   <!-- Bottom Bar: time + ground + tracking -->
@@ -41,6 +42,9 @@
       <span class="opacity-value">{{ Math.round(overlayOpacity * 100) }}%</span>
     </div>
   </div>
+
+  <!-- Grid Labels -->
+  <div ref="gridLabelsRef" class="grid-labels"></div>
 
   <!-- Debug Panel -->
   <DebugPanel v-if="!embedded" />
@@ -95,6 +99,8 @@ export default {
     const isTracking = ref(false);
     const terrainOn = ref(true);
     const gridOn = ref(true);
+    const gridLabelsRef = ref(null);
+    const raFormat = ref('hours');
 
     let sceneManager = null;
     let updateStarsInterval = null;
@@ -265,6 +271,7 @@ export default {
         if (gridManager && coordinates) {
           const poleVisible = isPoleOnScreen(camera, sceneManager.skyGroup, 10);
           gridManager.update(camera.fov, coordinates.ra_deg, coordinates.dec_deg, poleVisible);
+          gridManager.updateLabels(camera, sceneManager.skyGroup, gridLabelsRef.value, raFormat.value);
         }
 
         // HUD
@@ -403,6 +410,7 @@ export default {
       isTracking,
       terrainOn,
       gridOn,
+      gridLabelsRef,
       onToggleTracking,
       onGridToggle,
     };
@@ -543,5 +551,37 @@ export default {
 
 .slider-with-value.disabled {
   opacity: 0.35;
+}
+
+.grid-labels {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.grid-labels :deep(.grid-label) {
+  position: absolute;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.grid-labels :deep(.grid-label-top),
+.grid-labels :deep(.grid-label-bottom) {
+  transform: translateX(-50%);
+}
+
+.grid-labels :deep(.grid-label-right) {
+  transform: translateX(-100%) translateY(-50%);
+}
+
+.grid-labels :deep(.grid-label-left) {
+  transform: translateY(-50%);
 }
 </style>

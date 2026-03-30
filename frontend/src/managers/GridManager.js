@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { LRUCache } from '@/utils/LRUCache';
-import { equatorial_to_cartesian } from '@/utils/algos';
+import { equatorial_to_cartesian, formatDMS, formatHMS } from '@/utils/algos';
 
 const DEG2RAD = Math.PI / 180;
 const SEGMENTS = 512;
@@ -320,7 +320,7 @@ export default class GridManager {
 
     // RA labels: sample meridian within visible Dec range
     for (const raDeg of this._visibleMeridians) {
-      const text = raFormat === 'hours' ? this._fmtRAHours(raDeg) : this._fmtRADeg(raDeg);
+      const text = this._fmtRA(raDeg, raFormat);
       const pts = [];
       for (let i = 0; i <= SAMPLES; i++) {
         pts.push(toScreen(raDeg, decFrom + (decTo - decFrom) * i / SAMPLES));
@@ -376,31 +376,12 @@ export default class GridManager {
     }
   }
 
-  _fmtRAHours(deg) {
-    const totalSec = Math.round(deg / 15 * 3600); // degrees → seconds of RA
-    const h = Math.floor(totalSec / 3600);
-    const m = Math.floor((totalSec % 3600) / 60);
-    const s = totalSec % 60;
-    if (m === 0 && s === 0) return `${h}h`;
-    if (s === 0) return `${h}h${m}m`;
-    return `${h}h${m}m${s}s`;
-  }
-
-  _fmtRADeg(deg) {
-    return `${this._fmtNum(deg, this._meridianStep)}°`;
+  _fmtRA(deg, format) {
+    return format === 'hours' ? formatHMS(deg) : formatDMS(Math.abs(deg));
   }
 
   _fmtDec(deg) {
-    const sign = deg > 0 ? '+' : '';
-    return `${sign}${this._fmtNum(deg, this._parallelStep)}°`;
-  }
-
-  _fmtNum(v, step) {
-    if (step >= 1) return v.toFixed(0);
-    if (step >= 0.1) return v.toFixed(1);
-    if (step >= 0.01) return v.toFixed(2);
-    if (step >= 0.001) return v.toFixed(3);
-    return v.toFixed(4);
+    return formatDMS(deg);
   }
 
   dispose() {

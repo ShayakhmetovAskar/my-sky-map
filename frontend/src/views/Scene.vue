@@ -15,6 +15,8 @@
     @toggle-terrain="onTerrainToggle"
     @toggle-tracking="onToggleTracking"
     @ra-format-changed="onRaFormatChanged"
+    @cursor-tooltip-changed="(v) => { cursorTooltipEnabled = v }"
+    @coord-system-changed="(v) => { coordSystem = v }"
   />
 
   <!-- Bottom Bar: time + ground + tracking -->
@@ -46,6 +48,12 @@
   <!-- Grid Labels -->
   <div v-if="!embedded" ref="gridLabelsRef" class="grid-labels"></div>
 
+  <!-- Cursor Tooltip -->
+  <div v-if="cursorTooltipVisible" class="cursor-tooltip" :style="{ left: cursorX + 'px', top: cursorY + 'px' }">
+    {{ cursorCoords }}
+    <div v-if="angDistResult" class="ang-dist">{{ angDistResult }}</div>
+  </div>
+
   <!-- Debug Panel -->
   <DebugPanel v-if="!embedded" />
 
@@ -68,7 +76,7 @@ import SideMenu from '@/components/SideMenu.vue';
 import DebugPanel from '@/components/DebugPanel.vue';
 import HealpixManager from '@/managers/HealpixManager';
 import OverlayManager from '@/managers/OverlayManager';
-import { getWorldUp, equatorial_to_cartesian, cartesian_to_equatorial, isPoleOnScreen } from '@/utils/algos';
+import { getWorldUp, equatorial_to_cartesian, cartesian_to_equatorial, isPoleOnScreen, equatorialToHorizontal, getZenithRaDecFast, formatDMS, formatHMS, angularDistance } from '@/utils/algos';
 import debugSettings from '@/settings/debugSettings';
 
 export default {
@@ -101,6 +109,22 @@ export default {
     const gridOn = ref(true);
     const gridLabelsRef = ref(null);
     const raFormat = ref(localStorage.getItem('raFormat') || 'hours');
+    const cursorTooltipEnabled = ref(localStorage.getItem('cursorTooltip') !== 'false');
+    const coordSystem = ref(localStorage.getItem('coordSystem') || 'equatorial');
+    const cursorTooltipVisible = ref(false);
+    const cursorX = ref(0);
+    const cursorY = ref(0);
+    const cursorCoords = ref('');
+
+    const _raycaster = new THREE.Raycaster();
+    const _mouse = new THREE.Vector2();
+    let _mouseOnCanvas = false;
+    let _lastClientX = 0;
+    let _lastClientY = 0;
+
+    // Angular distance measurement
+    const angDistPoint1 = ref(null); // { raDeg, decDeg }
+    const angDistResult = ref('');
 
     let sceneManager = null;
     let updateStarsInterval = null;
@@ -232,6 +256,79 @@ export default {
         }
       });
 
+      // Cursor tooltip — RA/Dec under mouse
+      const canvas = sceneManager.renderer.domElement;
+
+      const updateCursorCoords = () => {
+        if (!_mouseOnCanvas || !cursorTooltipEnabled.value) {
+          cursorTooltipVisible.value = false;
+          return;
+        }
+        _raycaster.setFromCamera(_mouse, sceneManager.camera);
+        const dir = _raycaster.ray.direction.clone();
+        dir.applyQuaternion(sceneManager.skyGroup.quaternion.clone().invert());
+
+        const [ra, dec] = cartesian_to_equatorial(dir.x, dir.y, dir.z);
+        const raDeg = ra * 180 / Math.PI;
+        const decDeg = dec * 180 / Math.PI;
+
+        let coordText;
+        if (coordSystem.value === 'horizontal') {
+          const date = timeSelectorRef.value?.getSmoothTime(0) || new Date();
+          const { ra: lstH } = getZenithRaDecFast(date, observer.latitude, observer.longitude);
+          const { alt, az } = equatorialToHorizontal(raDeg, decDeg, lstH, observer.latitude);
+          coordText = `Az ${formatDMS(az)}  Alt ${formatDMS(alt)}`;
+        } else {
+          const raText = raFormat.value === 'hours' ? formatHMS(raDeg) : formatDMS(raDeg);
+          coordText = `${raText}  ${formatDMS(decDeg)}`;
+        }
+
+        cursorCoords.value = coordText;
+        cursorX.value = _lastClientX + 16;
+        cursorY.value = _lastClientY + 16;
+        cursorTooltipVisible.value = true;
+      };
+
+      canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        _mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        _mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        _lastClientX = e.clientX;
+        _lastClientY = e.clientY;
+        _mouseOnCanvas = true;
+        updateCursorCoords();
+      });
+
+      canvas.addEventListener('mouseleave', () => {
+        _mouseOnCanvas = false;
+        cursorTooltipVisible.value = false;
+      });
+
+      // Angular distance: shift+click two points
+      canvas.addEventListener('click', (e) => {
+        if (!e.shiftKey) {
+          angDistPoint1.value = null;
+          angDistResult.value = '';
+          return;
+        }
+
+        _raycaster.setFromCamera(_mouse, sceneManager.camera);
+        const dir = _raycaster.ray.direction.clone();
+        dir.applyQuaternion(sceneManager.skyGroup.quaternion.clone().invert());
+        const [ra, dec] = cartesian_to_equatorial(dir.x, dir.y, dir.z);
+        const raDeg = ra * 180 / Math.PI;
+        const decDeg = dec * 180 / Math.PI;
+
+        if (!angDistPoint1.value) {
+          angDistPoint1.value = { raDeg, decDeg };
+          angDistResult.value = 'Shift+click second point...';
+        } else {
+          const dist = angularDistance(angDistPoint1.value.raDeg, angDistPoint1.value.decDeg, raDeg, decDeg);
+          angDistResult.value = `Distance: ${formatDMS(dist, 1)}`;
+          angDistPoint1.value = null;
+        }
+      });
+
       //debugManager = new GraphicsDebugManager(sceneManager.skyGroup);
 
       // Инициализируем CelestialManager с LabelManager
@@ -278,6 +375,9 @@ export default {
           gridManager.update(camera.fov, coordinates.ra_deg, coordinates.dec_deg, poleVisible);
           gridManager.updateLabels(camera, sceneManager.skyGroup, gridLabelsRef.value, raFormat.value);
         }
+
+        // Update cursor tooltip (sky may have rotated even if mouse didn't move)
+        updateCursorCoords();
 
         // HUD
         if (coordinates) {
@@ -419,6 +519,13 @@ export default {
       onToggleTracking,
       onGridToggle,
       onRaFormatChanged,
+      cursorTooltipEnabled,
+      coordSystem,
+      cursorTooltipVisible,
+      cursorX,
+      cursorY,
+      cursorCoords,
+      angDistResult,
     };
   }
 };
@@ -428,6 +535,7 @@ export default {
 .three-container {
   width: 100%;
   height: 100%;
+  cursor: crosshair;
   overflow: hidden;
 }
 
@@ -589,5 +697,24 @@ export default {
 
 .grid-labels :deep(.grid-label-left) {
   transform: translateY(-50%);
+}
+
+.cursor-tooltip {
+  position: fixed;
+  pointer-events: none;
+  z-index: 100;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 3px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.cursor-tooltip .ang-dist {
+  color: #4fc3f7;
+  margin-top: 2px;
+  font-size: 11px;
 }
 </style>

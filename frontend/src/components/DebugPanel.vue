@@ -6,12 +6,20 @@
     </div>
     <div class="debug-content">
       <label>
-        <input 
-          type="checkbox" 
-          :checked="showTileBounds" 
+        <input
+          type="checkbox"
+          :checked="showTileBounds"
           @change="toggleTileBounds"
         />
         Show tile bounds
+      </label>
+      <label>
+        <input
+          type="checkbox"
+          :checked="showHudDebug"
+          @change="toggleHudDebug"
+        />
+        HUD debug info
       </label>
     </div>
   </div>
@@ -37,16 +45,22 @@ export default {
   setup(props, { emit }) {
     const isVisible = ref(false);
     const showTileBounds = ref(debugSettings.get('showTileBounds'));
+    const showHudDebug = ref(debugSettings.get('showHudDebug'));
 
     const toggleTileBounds = () => {
       showTileBounds.value = !showTileBounds.value;
       debugSettings.set('showTileBounds', showTileBounds.value);
       emit('setting-changed', 'showTileBounds', showTileBounds.value);
-      
+
       // Для обратной совместимости с textureLoader
       window.dispatchEvent(new CustomEvent('debug-settings-changed', {
         detail: { showTileBounds: showTileBounds.value }
       }));
+    };
+
+    const toggleHudDebug = () => {
+      showHudDebug.value = !showHudDebug.value;
+      debugSettings.set('showHudDebug', showHudDebug.value);
     };
 
     // Горячая клавиша Ctrl+D для открытия/закрытия панели
@@ -68,7 +82,9 @@ export default {
     return {
       isVisible,
       showTileBounds,
-      toggleTileBounds
+      showHudDebug,
+      toggleTileBounds,
+      toggleHudDebug,
     };
   }
 };

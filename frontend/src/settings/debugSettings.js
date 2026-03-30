@@ -8,10 +8,10 @@ class DebugSettings {
   loadFromStorage() {
     try {
       const stored = localStorage.getItem(this.storageKey);
-      return stored ? JSON.parse(stored) : { showTileBounds: false };
+      return stored ? JSON.parse(stored) : { showTileBounds: false, showHudDebug: false };
     } catch (e) {
       console.error('Failed to load debug settings:', e);
-      return { showTileBounds: false };
+      return { showTileBounds: false, showHudDebug: false };
     }
   }
 

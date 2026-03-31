@@ -245,13 +245,16 @@ export default class ControlsManager {
     _mouseNDC.x = ((clientX - rect.left) / rect.width) * 2 - 1;
     _mouseNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
     _ray.setFromCamera(_mouseNDC, this.camera);
-    return _ray.ray.intersectSphere(_sphere, _hitTarget) ? _hitTarget.clone() : null;
+    return _ray.ray.intersectSphere(_sphere, _hitTarget) ? _hitTarget : null;
   }
 
-  _onPointerUp() {
+  _onPointerUp(event) {
     if (!this._isDragging) return;
     this._isDragging = false;
     this.userIsInteracting = false;
+    if (event?.pointerId !== undefined) {
+      this.domElement.releasePointerCapture(event.pointerId);
+    }
 
     // Sync OrbitControls with final camera position (once, after drag)
     this.controls.update();

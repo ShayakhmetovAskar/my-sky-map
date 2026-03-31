@@ -6,7 +6,6 @@ const _mouseNDC = new THREE.Vector2();
 const _ray = new THREE.Raycaster();
 const _sphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 10);
 const _hitTarget = new THREE.Vector3();
-const _spherical = new THREE.Spherical();
 
 export default class ControlsManager {
   /**
@@ -194,7 +193,6 @@ export default class ControlsManager {
     this._isDragging = true;
     this.userIsInteracting = true;
     this._removeConstraints();
-    this.domElement.setPointerCapture(event.pointerId);
     this._prevDragX = event.clientX;
     this._prevDragY = event.clientY;
   }
@@ -211,12 +209,9 @@ export default class ControlsManager {
       const deltaAz = cur.az - prev.az;
       const deltaPhi = cur.alt - prev.alt;
 
-      _spherical.setFromVector3(this.camera.position);
-      _spherical.theta -= deltaAz;
-      _spherical.phi -= deltaPhi;
-      _spherical.phi = THREE.MathUtils.clamp(_spherical.phi, 0.01, Math.PI - 0.01);
-      this.camera.position.setFromSpherical(_spherical);
-      this.controls.update();
+      // Apply through OrbitControls' internal delta (handles clamping, no gimbal lock)
+      this.controls._rotateLeft(deltaAz);
+      this.controls._rotateUp(deltaPhi);
     }
 
     this._prevDragX = event.clientX;
@@ -245,16 +240,13 @@ export default class ControlsManager {
     _mouseNDC.x = ((clientX - rect.left) / rect.width) * 2 - 1;
     _mouseNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
     _ray.setFromCamera(_mouseNDC, this.camera);
-    return _ray.ray.intersectSphere(_sphere, _hitTarget) ? _hitTarget : null;
+    return _ray.ray.intersectSphere(_sphere, _hitTarget) ? _hitTarget.clone() : null;
   }
 
-  _onPointerUp(event) {
+  _onPointerUp() {
     if (!this._isDragging) return;
     this._isDragging = false;
     this.userIsInteracting = false;
-    if (event?.pointerId !== undefined) {
-      this.domElement.releasePointerCapture(event.pointerId);
-    }
 
     // Sync OrbitControls with final camera position (once, after drag)
     this.controls.update();
@@ -264,6 +256,22 @@ export default class ControlsManager {
     } else if (this.target && this.trackingMode === 'fixed') {
       this._updateTargetFromCameraView();
     }
+  }
+
+  _pointCameraAt(raDeg, decDeg) {
+    const ra_rad = raDeg * Math.PI / 180;
+    const dec_rad = decDeg * Math.PI / 180;
+    const [x, y, z] = equatorial_to_cartesian(ra_rad, dec_rad, 10);
+    const vector = new THREE.Vector3(x, y, z);
+    vector.applyQuaternion(this.skyGroup.quaternion.clone());
+    const [ra_scene, dec_scene] = cartesian_to_equatorial(vector.x, vector.y, vector.z);
+
+    this.controls.minPolarAngle = Math.PI / 2 + dec_scene;
+    this.controls.maxPolarAngle = Math.PI / 2 + dec_scene;
+    this.controls.minAzimuthAngle = ra_scene;
+    this.controls.maxAzimuthAngle = ra_scene;
+    this.controls.update();
+    this._removeConstraints();
   }
 
   _onFovChange(newFov) {
@@ -303,28 +311,38 @@ export default class ControlsManager {
    * Same approach as drag: compare sphere intersection before/after FOV change.
    */
   _zoomTowardScreen(clientX, clientY, newFov) {
-    // 1. Spherical coords of cursor BEFORE zoom
-    const before = this._screenToSpherical(clientX, clientY);
+    // 1. Get current camera center RA/Dec
+    const centerCoords = this.getCurrentCameraViewCoordinates();
+    if (!centerCoords) { this._onFovChange(newFov); return; }
 
-    // 2. Apply FOV change + sync matrices
+    // 2. Get RA/Dec under cursor
+    const hit = this._raycastSphere(clientX, clientY);
+    if (!hit) { this._onFovChange(newFov); return; }
+    const hitDir = hit.clone().normalize();
+    hitDir.applyQuaternion(this.skyGroup.quaternion.clone().invert());
+    const [cursorRA, cursorDec] = cartesian_to_equatorial(hitDir.x, hitDir.y, hitDir.z);
+    const cursorRA_deg = cursorRA * 180 / Math.PI;
+    const cursorDec_deg = cursorDec * 180 / Math.PI;
+
+    // 3. Interpolation factor
+    const oldFov = this.currentFov;
+    const ratio = 1 - newFov / oldFov;
+
+    // 4. Interpolate RA/Dec toward cursor (shortest path for RA)
+    let deltaRA = cursorRA_deg - centerCoords.ra_deg;
+    if (deltaRA > 180) deltaRA -= 360;
+    if (deltaRA < -180) deltaRA += 360;
+    let newRA = centerCoords.ra_deg + deltaRA * ratio;
+    let newDec = centerCoords.dec_deg + (cursorDec_deg - centerCoords.dec_deg) * ratio;
+
+    newDec = THREE.MathUtils.clamp(newDec, -89.99, 89.99);
+    newRA = ((newRA % 360) + 360) % 360;
+
+    // 5. Apply FOV change
     this._onFovChange(newFov);
-    this.controls.update();
-    this.camera.updateMatrixWorld();
 
-    // 3. Spherical coords of same screen pixel AFTER zoom
-    const after = this._screenToSpherical(clientX, clientY);
-
-    if (before && after) {
-      const deltaAz = after.az - before.az;
-      const deltaPhi = after.alt - before.alt;
-
-      _spherical.setFromVector3(this.camera.position);
-      _spherical.theta -= deltaAz;
-      _spherical.phi -= deltaPhi;
-      _spherical.phi = THREE.MathUtils.clamp(_spherical.phi, 0.01, Math.PI - 0.01);
-      this.camera.position.setFromSpherical(_spherical);
-      this.controls.update();
-    }
+    // 6. Point camera at new RA/Dec via constraints
+    this._pointCameraAt(newRA, newDec);
   }
 
   /**

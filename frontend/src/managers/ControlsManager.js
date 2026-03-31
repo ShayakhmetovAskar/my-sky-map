@@ -72,6 +72,7 @@ export default class ControlsManager {
     this.domElement.addEventListener('pointermove', this._onPointerMove);
     this.domElement.addEventListener('pointerup', this._onPointerUp);
     this.domElement.addEventListener('pointerleave', this._onPointerUp);
+    this.domElement.addEventListener('pointercancel', this._onPointerUp);
 
     // Touch
     this.onTouchStart = this.onTouchStart.bind(this);
@@ -197,7 +198,7 @@ export default class ControlsManager {
   }
 
   _onPointerMove(event) {
-    if (!this._isDragging) return;
+    if (!this._isDragging || this.isPinching) return;
 
     // Unproject previous and current screen points → spherical coords on sky sphere
     const prev = this._screenToSpherical(this._prevDragX, this._prevDragY);
@@ -522,6 +523,12 @@ export default class ControlsManager {
    */
   dispose() {
     this.domElement.removeEventListener('wheel', this.onWheel);
+
+    this.domElement.removeEventListener('pointerdown', this._onPointerDown);
+    this.domElement.removeEventListener('pointermove', this._onPointerMove);
+    this.domElement.removeEventListener('pointerup', this._onPointerUp);
+    this.domElement.removeEventListener('pointerleave', this._onPointerUp);
+    this.domElement.removeEventListener('pointercancel', this._onPointerUp);
 
     this.domElement.removeEventListener('touchstart', this.onTouchStart);
     this.domElement.removeEventListener('touchmove', this.onTouchMove);

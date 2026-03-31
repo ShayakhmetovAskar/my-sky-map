@@ -198,7 +198,7 @@ export default class ControlsManager {
   }
 
   _onPointerMove(event) {
-    if (!this._isDragging) return;
+    if (!this._isDragging || this.isPinching) return;
 
     // Unproject previous and current screen points → spherical coords on sky sphere
     const prev = this._screenToSpherical(this._prevDragX, this._prevDragY);

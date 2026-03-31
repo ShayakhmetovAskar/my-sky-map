@@ -72,6 +72,7 @@ export default class ControlsManager {
     this.domElement.addEventListener('pointermove', this._onPointerMove);
     this.domElement.addEventListener('pointerup', this._onPointerUp);
     this.domElement.addEventListener('pointerleave', this._onPointerUp);
+    this.domElement.addEventListener('pointercancel', this._onPointerUp);
 
     // Touch
     this.onTouchStart = this.onTouchStart.bind(this);
@@ -255,22 +256,6 @@ export default class ControlsManager {
     } else if (this.target && this.trackingMode === 'fixed') {
       this._updateTargetFromCameraView();
     }
-  }
-
-  _pointCameraAt(raDeg, decDeg) {
-    const ra_rad = raDeg * Math.PI / 180;
-    const dec_rad = decDeg * Math.PI / 180;
-    const [x, y, z] = equatorial_to_cartesian(ra_rad, dec_rad, 10);
-    const vector = new THREE.Vector3(x, y, z);
-    vector.applyQuaternion(this.skyGroup.quaternion.clone());
-    const [ra_scene, dec_scene] = cartesian_to_equatorial(vector.x, vector.y, vector.z);
-
-    this.controls.minPolarAngle = Math.PI / 2 + dec_scene;
-    this.controls.maxPolarAngle = Math.PI / 2 + dec_scene;
-    this.controls.minAzimuthAngle = ra_scene;
-    this.controls.maxAzimuthAngle = ra_scene;
-    this.controls.update();
-    this._removeConstraints();
   }
 
   _onFovChange(newFov) {
@@ -509,6 +494,12 @@ export default class ControlsManager {
    */
   dispose() {
     this.domElement.removeEventListener('wheel', this.onWheel);
+
+    this.domElement.removeEventListener('pointerdown', this._onPointerDown);
+    this.domElement.removeEventListener('pointermove', this._onPointerMove);
+    this.domElement.removeEventListener('pointerup', this._onPointerUp);
+    this.domElement.removeEventListener('pointerleave', this._onPointerUp);
+    this.domElement.removeEventListener('pointercancel', this._onPointerUp);
 
     this.domElement.removeEventListener('touchstart', this.onTouchStart);
     this.domElement.removeEventListener('touchmove', this.onTouchMove);

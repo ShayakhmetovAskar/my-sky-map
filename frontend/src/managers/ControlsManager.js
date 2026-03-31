@@ -2,6 +2,12 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import * as THREE from 'three';
 import { equatorial_to_cartesian, cartesian_to_equatorial } from '@/utils/algos';
 
+const _mouseNDC = new THREE.Vector2();
+const _ray = new THREE.Raycaster();
+const _sphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 10);
+const _hitTarget = new THREE.Vector3();
+const _spherical = new THREE.Spherical();
+
 export default class ControlsManager {
   /**
    * @param {THREE.Camera} camera - Камера Three.js
@@ -29,8 +35,7 @@ export default class ControlsManager {
     this.controls = new OrbitControls(this.camera, this.domElement);
 
     this.controls.enableDamping = false;
-    this.controls.dampingFactor = 0.1;
-    this.controls.rotateSpeed = -1;
+    this.controls.enableRotate = false; // we handle rotation ourselves
     this.controls.enableZoom = false;
     this.controls.touches.TWO = OrbitControls.TOUCH_NONE;
 
@@ -39,6 +44,11 @@ export default class ControlsManager {
 
     this.isPinching = false;
     this.previousPinchDistance = 0;
+
+    // Drag state
+    this._isDragging = false;
+    this._prevDragX = 0;
+    this._prevDragY = 0;
 
     // Отслеживание взаимодействия пользователя
     this.userIsInteracting = false;
@@ -54,6 +64,16 @@ export default class ControlsManager {
     // Wheel
     this.onWheel = this.onWheel.bind(this);
     this.domElement.addEventListener('wheel', this.onWheel, { passive: false });
+
+    // Drag (grab & hold)
+    this._onPointerDown = this._onPointerDown.bind(this);
+    this._onPointerMove = this._onPointerMove.bind(this);
+    this._onPointerUp = this._onPointerUp.bind(this);
+    this.domElement.addEventListener('pointerdown', this._onPointerDown);
+    this.domElement.addEventListener('pointermove', this._onPointerMove);
+    this.domElement.addEventListener('pointerup', this._onPointerUp);
+    this.domElement.addEventListener('pointerleave', this._onPointerUp);
+    this.domElement.addEventListener('pointercancel', this._onPointerUp);
 
     // Touch
     this.onTouchStart = this.onTouchStart.bind(this);
@@ -167,14 +187,91 @@ export default class ControlsManager {
     }
   }
 
+  // ── Grab & hold drag ──────────────────────────────────────────────────
+
+  _onPointerDown(event) {
+    if (event.button !== 0 || this.isPinching) return;
+    this._isDragging = true;
+    this.userIsInteracting = true;
+    this._removeConstraints();
+    this.domElement.setPointerCapture(event.pointerId);
+    this._prevDragX = event.clientX;
+    this._prevDragY = event.clientY;
+  }
+
+  _onPointerMove(event) {
+    if (!this._isDragging || this.isPinching) return;
+
+    // Unproject previous and current screen points → spherical coords on sky sphere
+    const prev = this._screenToSpherical(this._prevDragX, this._prevDragY);
+    const cur = this._screenToSpherical(event.clientX, event.clientY);
+
+    if (prev && cur) {
+      // Spherical delta
+      const deltaAz = cur.az - prev.az;
+      const deltaPhi = cur.alt - prev.alt;
+
+      _spherical.setFromVector3(this.camera.position);
+      _spherical.theta -= deltaAz;
+      _spherical.phi -= deltaPhi;
+      _spherical.phi = THREE.MathUtils.clamp(_spherical.phi, 0.01, Math.PI - 0.01);
+      this.camera.position.setFromSpherical(_spherical);
+      this.controls.update();
+    }
+
+    this._prevDragX = event.clientX;
+    this._prevDragY = event.clientY;
+  }
+
+  /**
+   * Unproject screen point → intersect sky sphere → spherical coordinates (az, alt)
+   */
+  _screenToSpherical(clientX, clientY) {
+    const hit = this._raycastSphere(clientX, clientY);
+    if (!hit) return null;
+    // Convert to spherical: azimuth (around Y) and altitude (from XZ plane)
+    const r = hit.length();
+    const alt = Math.asin(THREE.MathUtils.clamp(hit.y / r, -1, 1));
+    const az = Math.atan2(hit.x, hit.z);
+    return { az, alt };
+  }
+
+  /**
+   * Cast ray from camera through screen point, intersect with sky sphere (R=10).
+   * Returns world-space hit point or null.
+   */
+  _raycastSphere(clientX, clientY) {
+    const rect = this.domElement.getBoundingClientRect();
+    _mouseNDC.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    _mouseNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    _ray.setFromCamera(_mouseNDC, this.camera);
+    return _ray.ray.intersectSphere(_sphere, _hitTarget) ? _hitTarget : null;
+  }
+
+  _onPointerUp(event) {
+    if (!this._isDragging) return;
+    this._isDragging = false;
+    this.userIsInteracting = false;
+    if (event?.pointerId !== undefined) {
+      this.domElement.releasePointerCapture(event.pointerId);
+    }
+
+    // Sync OrbitControls with final camera position (once, after drag)
+    this.controls.update();
+
+    if (this.trackingMode === 'celestial' && this.trackedCelestialObject) {
+      this._updateCelestialTrackingOffset();
+    } else if (this.target && this.trackingMode === 'fixed') {
+      this._updateTargetFromCameraView();
+    }
+  }
+
   _onFovChange(newFov) {
     newFov = THREE.MathUtils.clamp(newFov, this.fovMin, this.fovMax);
     this.currentFov = newFov;
 
     this.camera.fov = newFov;
     this.camera.updateProjectionMatrix();
-
-    this.controls.rotateSpeed = (-1) * this.camera.fov / 200;
 
     this.controls.minDistance = this._mapFovToDistance(newFov);
     this.controls.maxDistance = this._mapFovToDistance(newFov);
@@ -191,8 +288,43 @@ export default class ControlsManager {
   onWheel(event) {
     event.preventDefault();
     const delta = event.deltaY * 0.05 * (this.currentFov / 60);
-    let newFov = this.currentFov + delta;
+    const newFov = THREE.MathUtils.clamp(this.currentFov + delta, this.fovMin, this.fovMax);
+
+    if (this.trackingMode) {
+      this._onFovChange(newFov);
+      return;
+    }
+
+    this._zoomTowardScreen(event.clientX, event.clientY, newFov);
+  }
+
+  /**
+   * Zoom toward a specific screen point using spherical delta.
+   * Same approach as drag: compare sphere intersection before/after FOV change.
+   */
+  _zoomTowardScreen(clientX, clientY, newFov) {
+    // 1. Spherical coords of cursor BEFORE zoom
+    const before = this._screenToSpherical(clientX, clientY);
+
+    // 2. Apply FOV change + sync matrices
     this._onFovChange(newFov);
+    this.controls.update();
+    this.camera.updateMatrixWorld();
+
+    // 3. Spherical coords of same screen pixel AFTER zoom
+    const after = this._screenToSpherical(clientX, clientY);
+
+    if (before && after) {
+      const deltaAz = after.az - before.az;
+      const deltaPhi = after.alt - before.alt;
+
+      _spherical.setFromVector3(this.camera.position);
+      _spherical.theta -= deltaAz;
+      _spherical.phi -= deltaPhi;
+      _spherical.phi = THREE.MathUtils.clamp(_spherical.phi, 0.01, Math.PI - 0.01);
+      this.camera.position.setFromSpherical(_spherical);
+      this.controls.update();
+    }
   }
 
   /**
@@ -217,10 +349,17 @@ export default class ControlsManager {
 
     const sensitivity = 6;
     const deltaFov = -(deltaDistance * sensitivity);
+    const newFov = this.currentFov + deltaFov * 0.2 * (this.currentFov / 240);
 
-    let newFov = this.currentFov + deltaFov * 0.2 * (this.currentFov / 240);
+    if (this.trackingMode) {
+      this._onFovChange(newFov);
+      this.previousPinchDistance = currentDistance;
+      return;
+    }
 
-    this._onFovChange(newFov);
+    const midX = (event.touches[0].clientX + event.touches[1].clientX) / 2;
+    const midY = (event.touches[0].clientY + event.touches[1].clientY) / 2;
+    this._zoomTowardScreen(midX, midY, newFov);
 
     this.previousPinchDistance = currentDistance;
   }
@@ -366,6 +505,12 @@ export default class ControlsManager {
    */
   dispose() {
     this.domElement.removeEventListener('wheel', this.onWheel);
+
+    this.domElement.removeEventListener('pointerdown', this._onPointerDown);
+    this.domElement.removeEventListener('pointermove', this._onPointerMove);
+    this.domElement.removeEventListener('pointerup', this._onPointerUp);
+    this.domElement.removeEventListener('pointerleave', this._onPointerUp);
+    this.domElement.removeEventListener('pointercancel', this._onPointerUp);
 
     this.domElement.removeEventListener('touchstart', this.onTouchStart);
     this.domElement.removeEventListener('touchmove', this.onTouchMove);

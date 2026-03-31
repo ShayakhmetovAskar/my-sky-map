@@ -209,9 +209,12 @@ export default class ControlsManager {
       const deltaAz = cur.az - prev.az;
       const deltaPhi = cur.alt - prev.alt;
 
-      // Apply through OrbitControls' internal delta (handles clamping, no gimbal lock)
-      this.controls._rotateLeft(deltaAz);
-      this.controls._rotateUp(deltaPhi);
+      const spherical = new THREE.Spherical().setFromVector3(this.camera.position);
+      spherical.theta -= deltaAz;
+      spherical.phi -= deltaPhi;
+      spherical.phi = THREE.MathUtils.clamp(spherical.phi, 0.01, Math.PI - 0.01);
+      this.camera.position.setFromSpherical(spherical);
+      this.controls.update();
     }
 
     this._prevDragX = event.clientX;
@@ -310,8 +313,11 @@ export default class ControlsManager {
       const deltaAz = after.az - before.az;
       const deltaPhi = after.alt - before.alt;
 
-      this.controls._rotateLeft(deltaAz);
-      this.controls._rotateUp(deltaPhi);
+      const spherical = new THREE.Spherical().setFromVector3(this.camera.position);
+      spherical.theta -= deltaAz;
+      spherical.phi -= deltaPhi;
+      spherical.phi = THREE.MathUtils.clamp(spherical.phi, 0.01, Math.PI - 0.01);
+      this.camera.position.setFromSpherical(spherical);
       this.controls.update();
     }
   }

@@ -6,6 +6,7 @@ const _mouseNDC = new THREE.Vector2();
 const _ray = new THREE.Raycaster();
 const _sphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 10);
 const _hitTarget = new THREE.Vector3();
+const _spherical = new THREE.Spherical();
 
 export default class ControlsManager {
   /**
@@ -193,6 +194,7 @@ export default class ControlsManager {
     this._isDragging = true;
     this.userIsInteracting = true;
     this._removeConstraints();
+    this.domElement.setPointerCapture(event.pointerId);
     this._prevDragX = event.clientX;
     this._prevDragY = event.clientY;
   }
@@ -209,11 +211,11 @@ export default class ControlsManager {
       const deltaAz = cur.az - prev.az;
       const deltaPhi = cur.alt - prev.alt;
 
-      const spherical = new THREE.Spherical().setFromVector3(this.camera.position);
-      spherical.theta -= deltaAz;
-      spherical.phi -= deltaPhi;
-      spherical.phi = THREE.MathUtils.clamp(spherical.phi, 0.01, Math.PI - 0.01);
-      this.camera.position.setFromSpherical(spherical);
+      _spherical.setFromVector3(this.camera.position);
+      _spherical.theta -= deltaAz;
+      _spherical.phi -= deltaPhi;
+      _spherical.phi = THREE.MathUtils.clamp(_spherical.phi, 0.01, Math.PI - 0.01);
+      this.camera.position.setFromSpherical(_spherical);
       this.controls.update();
     }
 
@@ -313,11 +315,11 @@ export default class ControlsManager {
       const deltaAz = after.az - before.az;
       const deltaPhi = after.alt - before.alt;
 
-      const spherical = new THREE.Spherical().setFromVector3(this.camera.position);
-      spherical.theta -= deltaAz;
-      spherical.phi -= deltaPhi;
-      spherical.phi = THREE.MathUtils.clamp(spherical.phi, 0.01, Math.PI - 0.01);
-      this.camera.position.setFromSpherical(spherical);
+      _spherical.setFromVector3(this.camera.position);
+      _spherical.theta -= deltaAz;
+      _spherical.phi -= deltaPhi;
+      _spherical.phi = THREE.MathUtils.clamp(_spherical.phi, 0.01, Math.PI - 0.01);
+      this.camera.position.setFromSpherical(_spherical);
       this.controls.update();
     }
   }

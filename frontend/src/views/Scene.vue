@@ -18,6 +18,7 @@
     @cursor-tooltip-changed="(v) => { cursorTooltipEnabled = v }"
     @coord-system-changed="(v) => { coordSystem = v }"
     @toggle-constellations="onConstellationsToggle"
+    @constellation-lang-changed="onConstellationLangChanged"
   />
 
   <!-- Bottom Bar: time + ground + tracking -->
@@ -208,6 +209,10 @@ export default {
       if (constellationManager) constellationManager.setVisible(constellationsOn.value);
     };
 
+    const onConstellationLangChanged = (lang) => {
+      if (constellationManager) constellationManager.setLang(lang);
+    };
+
     const onRaFormatChanged = (fmt) => {
       raFormat.value = fmt;
       localStorage.setItem('raFormat', fmt);
@@ -361,8 +366,9 @@ export default {
       healpixManager.update();
 
       constellationManager = new ConstellationManager(sceneManager.skyGroup);
-      constellationManager.load();
-      constellationManager.setVisible(constellationsOn.value);
+      constellationManager.load().then(() => {
+        constellationManager.setVisible(constellationsOn.value);
+      });
 
       sceneManager.startAnimationLoop((deltaTime, elapsedTime, scene, camera) => {
 
@@ -510,6 +516,10 @@ export default {
         //celestialManager.dispose();
         celestialManager = null;
       }
+      if (constellationManager) {
+        constellationManager.dispose();
+        constellationManager = null;
+      }
     });
 
     return {
@@ -536,6 +546,7 @@ export default {
       onToggleTracking,
       onGridToggle,
       onConstellationsToggle,
+      onConstellationLangChanged,
       constellationsOn,
       onRaFormatChanged,
       cursorTooltipEnabled,

@@ -23,15 +23,24 @@ export default class ConstellationManager {
       transparent: true,
       opacity: 0.5,
     });
+
+    this.lang = localStorage.getItem('constellationLang') || 'en';
+    this._centroids = []; // [{id, ra, dec}] for label recreation
   }
 
   async load() {
-    const resp = await fetch('/data/constellations.lines.json');
-    const geojson = await resp.json();
+    let geojson;
+    try {
+      const resp = await fetch('/data/constellations.lines.json');
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      geojson = await resp.json();
+    } catch (e) {
+      console.error('ConstellationManager: failed to load data', e);
+      return;
+    }
 
     for (const feature of geojson.features) {
       const id = feature.id;
-      const name = CONSTELLATION_NAMES[id] || id;
       const allRA = [];
       const allDec = [];
 
@@ -52,31 +61,47 @@ export default class ConstellationManager {
         this.linesGroup.add(line);
       }
 
-      // Label at centroid
+      // Save centroid for label (re)creation
       if (allRA.length > 0) {
-        // Circular mean for RA (handles wrap-around)
         const sinSum = allRA.reduce((s, r) => s + Math.sin(r), 0);
         const cosSum = allRA.reduce((s, r) => s + Math.cos(r), 0);
         const avgRA = Math.atan2(sinSum / allRA.length, cosSum / allRA.length);
         const avgDec = allDec.reduce((s, d) => s + d, 0) / allDec.length;
-
-        const [x, y, z] = equatorial_to_cartesian(
-          avgRA < 0 ? avgRA + 2 * Math.PI : avgRA,
-          avgDec,
-          this.radius
-        );
-
-        const sprite = this._createLabel(name);
-        sprite.position.set(x, y, z);
-        this.labelsGroup.add(sprite);
+        this._centroids.push({ id, ra: avgRA < 0 ? avgRA + 2 * Math.PI : avgRA, dec: avgDec });
       }
+    }
+
+    this._rebuildLabels();
+  }
+
+  setLang(lang) {
+    this.lang = lang;
+    localStorage.setItem('constellationLang', lang);
+    this._rebuildLabels();
+  }
+
+  _rebuildLabels() {
+    // Clear old labels
+    for (const sprite of [...this.labelsGroup.children]) {
+      if (sprite.material?.map) sprite.material.map.dispose();
+      if (sprite.material) sprite.material.dispose();
+      this.labelsGroup.remove(sprite);
+    }
+
+    const names = CONSTELLATION_NAMES[this.lang] || CONSTELLATION_NAMES.en;
+    for (const { id, ra, dec } of this._centroids) {
+      const name = names[id] || id;
+      const [x, y, z] = equatorial_to_cartesian(ra, dec, this.radius);
+      const sprite = this._createLabel(name);
+      sprite.position.set(x, y, z);
+      this.labelsGroup.add(sprite);
     }
   }
 
   _createLabel(text) {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-    const fontSize = 16;
+    const fontSize = 12;
     const dpi = 2;
 
     ctx.font = `100 ${fontSize * dpi}px 'Courier New', monospace`;
@@ -124,10 +149,13 @@ export default class ConstellationManager {
   }
 
   dispose() {
-    for (const line of this.linesGroup.children) {
+    if (this._disposed) return;
+    this._disposed = true;
+
+    for (const line of [...this.linesGroup.children]) {
       line.geometry.dispose();
     }
-    for (const sprite of this.labelsGroup.children) {
+    for (const sprite of [...this.labelsGroup.children]) {
       if (sprite.material?.map) sprite.material.map.dispose();
       if (sprite.material) sprite.material.dispose();
     }

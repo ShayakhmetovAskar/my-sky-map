@@ -47,6 +47,13 @@
               <span>Constellations</span>
             </label>
             <label class="toggle-row">
+              <span>Names</span>
+              <select v-model="constLang" @change="onConstLangChange" class="ra-format-select">
+                <option value="en">English</option>
+                <option value="ru">Русские</option>
+              </select>
+            </label>
+            <label class="toggle-row">
               <span>RA format</span>
               <select v-model="raFmt" @change="emit('ra-format-changed', raFmt)" class="ra-format-select">
                 <option value="hours">Hours (0h..23h)</option>
@@ -101,13 +108,20 @@ const props = defineProps({
   tracking: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['location-changed', 'toggle-terrain', 'toggle-tracking', 'ra-format-changed', 'cursor-tooltip-changed', 'coord-system-changed', 'toggle-constellations'])
+const emit = defineEmits(['location-changed', 'toggle-terrain', 'toggle-tracking', 'ra-format-changed', 'cursor-tooltip-changed', 'coord-system-changed', 'toggle-constellations', 'constellation-lang-changed'])
 
 const constellationsOn = ref(localStorage.getItem('constellations') !== 'false')
+
+const constLang = ref(localStorage.getItem('constellationLang') || 'en')
 
 const onConstellationsToggle = () => {
   localStorage.setItem('constellations', constellationsOn.value)
   emit('toggle-constellations')
+}
+
+const onConstLangChange = () => {
+  localStorage.setItem('constellationLang', constLang.value)
+  emit('constellation-lang-changed', constLang.value)
 }
 
 const raFmt = ref(localStorage.getItem('raFormat') || 'hours')

@@ -134,12 +134,12 @@ export default class LabelManager {
      */
     async fetchAndCacheStarName(source_id) {
         if (this.nameCache.has(source_id) || this.pendingLookups.has(source_id)) return;
-        if (this.pendingLookups.size > 3) return;
+        if (this.pendingLookups.size >= 3) return;
 
         this.pendingLookups.add(source_id);
         try {
             const res = await fetch(`${API_CONFIG.STAR_NAMES.baseUrl}/${source_id}`);
-            if (!res.ok) throw new Error(res.status);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
             this.nameCache.put(source_id, data?.ProperName ? this.cleanStarName(data.ProperName) : null);
         } catch {

@@ -17,6 +17,7 @@
     @ra-format-changed="onRaFormatChanged"
     @cursor-tooltip-changed="(v) => { cursorTooltipEnabled = v }"
     @coord-system-changed="(v) => { coordSystem = v }"
+    @toggle-constellations="onConstellationsToggle"
   />
 
   <!-- Bottom Bar: time + ground + tracking -->
@@ -24,11 +25,13 @@
     :ground="terrainOn"
     :tracking="isTracking"
     :grid="gridOn"
+    :constellations="constellationsOn"
     @time-changed="onTimeChanged"
     @ready="onTimeSelectorReady"
     @toggle-terrain="onTerrainToggle"
     @toggle-tracking="onToggleTracking"
     @toggle-grid="onGridToggle"
+    @toggle-constellations="onConstellationsToggle"
   />
 
   <!-- Overlay Controls (when viewing solved image) -->
@@ -66,6 +69,7 @@ import * as THREE from 'three';
 import SceneManager from '@/managers/SceneManager.js';
 import ControlsManager from '@/managers/ControlsManager';
 import GridManager from '@/managers/GridManager';
+import ConstellationManager from '@/managers/ConstellationManager';
 import CelestialManager from '@/managers/CelestialManager';
 import UIManager from '@/managers/UIManager';
 import GroundManager from '@/managers/GroundManager';
@@ -107,6 +111,7 @@ export default {
     const isTracking = ref(false);
     const terrainOn = ref(true);
     const gridOn = ref(true);
+    const constellationsOn = ref(localStorage.getItem('constellations') !== 'false');
     const gridLabelsRef = ref(null);
     const raFormat = ref(localStorage.getItem('raFormat') || 'hours');
     const cursorTooltipEnabled = ref(localStorage.getItem('cursorTooltip') !== 'false');
@@ -135,6 +140,7 @@ export default {
     let groundManager = null;
     let healpixManager = null;
     let overlayManager = null;
+    let constellationManager = null;
     let labelManager = null;
     let debugManager = null;
 
@@ -194,6 +200,12 @@ export default {
     const onGridToggle = () => {
       gridOn.value = !gridOn.value;
       if (gridManager) gridManager.setVisible(gridOn.value);
+    };
+
+    const onConstellationsToggle = () => {
+      constellationsOn.value = !constellationsOn.value;
+      localStorage.setItem('constellations', constellationsOn.value);
+      if (constellationManager) constellationManager.setVisible(constellationsOn.value);
     };
 
     const onRaFormatChanged = (fmt) => {
@@ -348,6 +360,9 @@ export default {
 
       healpixManager.update();
 
+      constellationManager = new ConstellationManager(sceneManager.skyGroup);
+      constellationManager.load();
+      constellationManager.setVisible(constellationsOn.value);
 
       sceneManager.startAnimationLoop((deltaTime, elapsedTime, scene, camera) => {
 
@@ -375,6 +390,8 @@ export default {
           gridManager.update(camera.fov, coordinates.ra_deg, coordinates.dec_deg, poleVisible);
           gridManager.updateLabels(camera, sceneManager.skyGroup, gridLabelsRef.value, raFormat.value);
         }
+
+        if (constellationManager) constellationManager.update(camera);
 
         // Update cursor tooltip (sky may have rotated even if mouse didn't move)
         updateCursorCoords();
@@ -518,6 +535,8 @@ export default {
       gridLabelsRef,
       onToggleTracking,
       onGridToggle,
+      onConstellationsToggle,
+      constellationsOn,
       onRaFormatChanged,
       cursorTooltipEnabled,
       coordSystem,

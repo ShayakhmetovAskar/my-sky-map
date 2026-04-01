@@ -134,24 +134,17 @@ export default class LabelManager {
      */
     async fetchAndCacheStarName(source_id) {
         if (this.nameCache.has(source_id) || this.pendingLookups.has(source_id)) return;
-
-        if (this.pendingLookups.size > 5) {
-            return;
-        }
+        if (this.pendingLookups.size >= 3) return;
 
         this.pendingLookups.add(source_id);
         try {
             const res = await fetch(`${API_CONFIG.STAR_NAMES.baseUrl}/${source_id}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
-            if (data?.ProperName) {
-                // Очищаем лишние пробелы перед сохранением в кэш
-                const cleanedName = this.cleanStarName(data.ProperName);
-                this.nameCache.put(source_id, cleanedName);
-            } else {
-                this.nameCache.put(source_id, null);
-            }
-        } catch (e) {
-            console.error('Ошибка при получении имени звезды:', e);
+            this.nameCache.put(source_id, data?.ProperName ? this.cleanStarName(data.ProperName) : null);
+        } catch {
+            // Don't retry failed lookups — cache null for this session
+            this.nameCache.put(source_id, null);
         } finally {
             this.pendingLookups.delete(source_id);
         }

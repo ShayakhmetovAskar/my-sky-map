@@ -112,7 +112,8 @@ export default class SceneManager {
    *    onUpdate(deltaTime, elapsedTime, scene, camera)
    */
   setMaxFramerate(fps) {
-    this._maxFps = Math.max(0, fps || 0);
+    const n = Number(fps);
+    this._maxFps = Number.isFinite(n) && n > 0 ? n : 0;
     localStorage.setItem('maxFramerate', this._maxFps);
   }
 

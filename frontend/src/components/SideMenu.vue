@@ -71,6 +71,16 @@
                 <option value="horizontal">Horizontal (Az/Alt)</option>
               </select>
             </label>
+            <label class="toggle-row">
+              <span>Max FPS</span>
+              <select v-model="maxFps" @change="onMaxFpsChange" class="ra-format-select">
+                <option value="0">Max</option>
+                <option value="60">60</option>
+                <option value="30">30</option>
+                <option value="custom">Custom</option>
+              </select>
+              <input v-if="maxFps === 'custom'" type="number" min="1" max="240" v-model.number="customFps" @change="onCustomFpsChange" class="fps-input" />
+            </label>
           </div>
 
           <!-- Navigation -->
@@ -108,7 +118,7 @@ const props = defineProps({
   tracking: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['location-changed', 'toggle-terrain', 'toggle-tracking', 'ra-format-changed', 'cursor-tooltip-changed', 'coord-system-changed', 'toggle-constellations', 'constellation-lang-changed'])
+const emit = defineEmits(['location-changed', 'toggle-terrain', 'toggle-tracking', 'ra-format-changed', 'cursor-tooltip-changed', 'coord-system-changed', 'toggle-constellations', 'constellation-lang-changed', 'max-fps-changed'])
 
 const constellationsOn = ref(localStorage.getItem('constellations') !== 'false')
 
@@ -128,6 +138,25 @@ const raFmt = ref(localStorage.getItem('raFormat') || 'hours')
 const tooltipOn = ref(localStorage.getItem('cursorTooltip') !== 'false')
 
 const coordSys = ref(localStorage.getItem('coordSystem') || 'equatorial')
+
+const savedFps = localStorage.getItem('maxFramerate') || '0'
+const isPreset = ['0', '30', '60'].includes(savedFps)
+const maxFps = ref(isPreset ? savedFps : 'custom')
+const customFps = ref(isPreset ? 30 : parseInt(savedFps, 10))
+
+const onMaxFpsChange = () => {
+  if (maxFps.value === 'custom') {
+    emit('max-fps-changed', customFps.value)
+  } else {
+    emit('max-fps-changed', parseInt(maxFps.value, 10))
+  }
+}
+
+const onCustomFpsChange = () => {
+  const v = Math.max(1, Math.min(240, customFps.value || 30))
+  customFps.value = v
+  emit('max-fps-changed', v)
+}
 
 const onTooltipToggle = () => {
   localStorage.setItem('cursorTooltip', tooltipOn.value)
@@ -368,6 +397,17 @@ function doLogout() {
   font-size: 0.85em;
   padding: 2px 4px;
   margin-left: auto;
+}
+
+.fps-input {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: #ccc;
+  font-size: 0.85em;
+  padding: 2px 4px;
+  width: 50px;
+  margin-left: 4px;
 }
 
 .menu-link {

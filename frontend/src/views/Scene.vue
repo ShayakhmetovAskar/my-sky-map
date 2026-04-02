@@ -19,6 +19,7 @@
     @coord-system-changed="(v) => { coordSystem = v }"
     @toggle-constellations="onConstellationsToggle"
     @constellation-lang-changed="onConstellationLangChanged"
+    @max-fps-changed="onMaxFpsChanged"
   />
 
   <!-- Bottom Bar: time + ground + tracking -->
@@ -216,6 +217,10 @@ export default {
     const onRaFormatChanged = (fmt) => {
       raFormat.value = fmt;
       localStorage.setItem('raFormat', fmt);
+    };
+
+    const onMaxFpsChanged = (fps) => {
+      if (sceneManager) sceneManager.setMaxFramerate(fps);
     };
 
     const onToggleTracking = () => {
@@ -549,6 +554,7 @@ export default {
       onConstellationLangChanged,
       constellationsOn,
       onRaFormatChanged,
+      onMaxFpsChanged,
       cursorTooltipEnabled,
       coordSystem,
       cursorTooltipVisible,

@@ -121,15 +121,20 @@ export default class SceneManager {
   }
 
   startAnimationLoop(onUpdate) {
+    let accumulatedDelta = 0;
+
     this.renderer.setAnimationLoop((time) => {
-      const deltaTime = this.clock.getDelta();
-      const elapsedTime = this.clock.elapsedTime;
+      accumulatedDelta += this.clock.getDelta();
 
       if (this._maxFps > 0) {
         const minInterval = 1000 / this._maxFps;
         if (time - this._lastFrameTime < minInterval) return;
         this._lastFrameTime = time;
       }
+
+      const deltaTime = accumulatedDelta;
+      accumulatedDelta = 0;
+      const elapsedTime = this.clock.elapsedTime;
 
       if (typeof onUpdate === 'function') {
         onUpdate(deltaTime, elapsedTime, this.scene, this.camera);

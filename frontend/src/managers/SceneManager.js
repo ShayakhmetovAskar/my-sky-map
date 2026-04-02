@@ -41,8 +41,8 @@ export default class SceneManager {
     this.clock = new THREE.Clock();
 
     // Frame rate limiter
-    const saved = localStorage.getItem('maxFramerate');
-    this._maxFps = saved ? parseInt(saved, 10) : 0; // 0 = unlimited
+    const saved = parseInt(localStorage.getItem('maxFramerate'), 10);
+    this._maxFps = saved > 0 ? saved : 0; // 0 = unlimited
     this._lastFrameTime = 0;
 
     this._onResize = this.onWindowResize.bind(this);
@@ -112,8 +112,8 @@ export default class SceneManager {
    *    onUpdate(deltaTime, elapsedTime, scene, camera)
    */
   setMaxFramerate(fps) {
-    this._maxFps = fps;
-    localStorage.setItem('maxFramerate', fps);
+    this._maxFps = Math.max(0, fps || 0);
+    localStorage.setItem('maxFramerate', this._maxFps);
   }
 
   getMaxFramerate() {
@@ -122,14 +122,14 @@ export default class SceneManager {
 
   startAnimationLoop(onUpdate) {
     this.renderer.setAnimationLoop((time) => {
+      const deltaTime = this.clock.getDelta();
+      const elapsedTime = this.clock.elapsedTime;
+
       if (this._maxFps > 0) {
         const minInterval = 1000 / this._maxFps;
         if (time - this._lastFrameTime < minInterval) return;
         this._lastFrameTime = time;
       }
-
-      const deltaTime = this.clock.getDelta();
-      const elapsedTime = this.clock.elapsedTime;
 
       if (typeof onUpdate === 'function') {
         onUpdate(deltaTime, elapsedTime, this.scene, this.camera);

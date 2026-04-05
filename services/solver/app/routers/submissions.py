@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..dependencies import get_current_user, get_db, get_storage
+from ..dependencies import get_user_id, get_db, get_storage
 from ..models.db import Submission
 from ..models.schemas import (
     CreateSubmissionRequest,
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/submissions", tags=["Submissions"])
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=SubmissionCreatedResponse)
 async def create_submission(
     body: CreateSubmissionRequest,
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_user_id),
     db: AsyncSession = Depends(get_db),
     storage: StorageService = Depends(get_storage),
 ):
@@ -62,7 +62,7 @@ async def create_submission(
 async def list_submissions(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_user_id),
     db: AsyncSession = Depends(get_db),
     storage: StorageService = Depends(get_storage),
 ):
@@ -95,7 +95,7 @@ async def list_submissions(
 @router.get("/{submission_id}", response_model=SubmissionDetailed)
 async def get_submission(
     submission_id: UUID,
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     query = (
@@ -112,7 +112,7 @@ async def get_submission(
 @router.delete("/{submission_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_submission(
     submission_id: UUID,
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_user_id),
     db: AsyncSession = Depends(get_db),
     storage: StorageService = Depends(get_storage),
 ):
@@ -129,7 +129,7 @@ async def delete_submission(
 @router.post("/{submission_id}/confirm", response_model=SubmissionSummary)
 async def confirm_submission_upload(
     submission_id: UUID,
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Submission).where(Submission.id == submission_id, Submission.user_id == user_id)

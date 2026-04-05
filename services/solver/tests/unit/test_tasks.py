@@ -84,7 +84,7 @@ class TestListTasks:
         assert resp2.json()["total"] == 0
 
     async def test_user_isolation(self, client: AsyncClient):
-        from app.dependencies import get_current_user
+        from app.dependencies import get_user_id
         from app.main import app
 
         sub_id = await _create_uploaded_submission(client)
@@ -95,7 +95,7 @@ class TestListTasks:
         assert resp_a.json()["total"] == 1
 
         # Switch to user B
-        app.dependency_overrides[get_current_user] = lambda: "other-user-999"
+        app.dependency_overrides[get_user_id] = lambda: "other-user-999"
 
         # User B does not see them
         resp_b = await client.get("/tasks")

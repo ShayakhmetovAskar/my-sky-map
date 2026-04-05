@@ -3,6 +3,7 @@ import { AUTH_CONFIG } from '@/settings/auth'
 
 const TOKEN_KEY = 'skymap_access_token'
 const TOKEN_EXP_KEY = 'skymap_token_exp'
+const ANON_KEY = 'skymap_anonymous_id'
 
 const isAuthenticated = ref(false)
 const user = ref(null)
@@ -71,6 +72,21 @@ function clearPkce() {
   sessionStorage.removeItem('pkce_state')
 }
 
+// ─── Anonymous identity ──────────────────────────────────────────────────────
+
+function getAnonymousId() {
+  let id = localStorage.getItem(ANON_KEY)
+  if (!id) {
+    id = crypto.randomUUID()
+    localStorage.setItem(ANON_KEY, id)
+  }
+  return id
+}
+
+function clearAnonymousId() {
+  localStorage.removeItem(ANON_KEY)
+}
+
 // ─── Auth flow ───────────────────────────────────────────────────────────────
 
 async function login() {
@@ -105,7 +121,6 @@ async function handleCallback(code, state) {
 
   if (state !== savedState) {
     console.error('OAuth state mismatch')
-    // Don't clearToken — preserve pkce data for retry
     return false
   }
 
@@ -128,10 +143,33 @@ async function handleCallback(code, state) {
     storeToken(data.access_token, data.expires_in)
     sessionStorage.removeItem('pkce_verifier')
     sessionStorage.removeItem('pkce_state')
+
+    // Merge anonymous data before navigating
+    await mergeAnonymousData(data.access_token)
+
     return true
   } catch (err) {
     console.error('Token exchange failed:', err.message)
     return false
+  }
+}
+
+async function mergeAnonymousData(token) {
+  const anonId = localStorage.getItem(ANON_KEY)
+  if (!anonId) return
+
+  try {
+    const { default: apiClient } = await import('@/utils/apiClient')
+    const { data } = await apiClient.post('/auth/merge',
+      { anonymous_id: anonId },
+      { headers: { Authorization: `Bearer ${token}` } },
+    )
+    if (data.merged > 0) {
+      console.info(`Merged ${data.merged} anonymous records`)
+    }
+    clearAnonymousId()
+  } catch (e) {
+    console.warn('Failed to merge anonymous data:', e)
   }
 }
 
@@ -160,6 +198,7 @@ export function useAuth() {
     isAuthenticated: readonly(isAuthenticated),
     user: readonly(user),
     getToken,
+    getAnonymousId,
     login,
     logout,
     handleCallback,

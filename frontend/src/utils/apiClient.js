@@ -8,10 +8,14 @@ const apiClient = axios.create({
 })
 
 apiClient.interceptors.request.use((config) => {
-  const { getToken } = useAuth()
+  const { getToken, getAnonymousId } = useAuth()
   const token = getToken()
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
+  } else if (!sessionStorage.getItem('skymap_access_token')) {
+    // Only send anon ID if user was never authenticated in this session.
+    // If token existed but expired — don't fall back to anon, let 401 trigger re-login.
+    config.headers['X-Anonymous-Id'] = getAnonymousId()
   }
   return config
 })
@@ -20,8 +24,11 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      const { logout } = useAuth()
-      logout()
+      const { isAuthenticated, logout } = useAuth()
+      // Only logout if user was authenticated (don't interfere with anon flow)
+      if (isAuthenticated.value) {
+        logout()
+      }
     }
     return Promise.reject(error)
   }

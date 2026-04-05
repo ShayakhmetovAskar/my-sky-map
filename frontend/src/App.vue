@@ -3,10 +3,8 @@
     <div v-if="showAuthBar" class="auth-bar">
       <div class="nav-links">
         <router-link to="/" class="auth-link">Sky Map</router-link>
-        <template v-if="isAuthenticated">
-          <router-link to="/submissions" class="auth-link">My Submissions</router-link>
-          <router-link to="/solve" class="auth-link">Solve New</router-link>
-        </template>
+        <router-link to="/submissions" class="auth-link">My Submissions</router-link>
+        <router-link to="/solve" class="auth-link">Solve New</router-link>
       </div>
       <div class="auth-right">
         <template v-if="isAuthenticated">

@@ -40,8 +40,11 @@ class TestFullFlow:
         assert resp.status_code == 200
         assert resp.json()["status"] == "uploaded"
 
-        # 4. Create task
-        resp = await client.post("/tasks", json={"submission_id": sub_id})
+        # 4. Create task (api_key required)
+        resp = await client.post("/tasks", json={
+            "submission_id": sub_id,
+            "options": {"astrometry_api_key": "test-astro-key"},
+        })
         assert resp.status_code == 201
         task_id = resp.json()["id"]
 
@@ -52,7 +55,7 @@ class TestFullFlow:
         # 6. Simulate worker (real storage, mock solver)
         with patch("worker.pipeline.get_solver", return_value=mock_solver):
             from worker.pipeline import process
-            result = await process(task_id, object_key)
+            result = await process(task_id, object_key, options={"astrometry_api_key": "test-astro-key"})
 
         # 7. Verify result
         assert result["center_ra"] == pytest.approx(83.857, abs=0.01)
@@ -74,7 +77,10 @@ class TestFullFlow:
         assert resp.json()["status"] == "uploaded"
 
         # processing
-        await client.post("/tasks", json={"submission_id": sub_id})
+        await client.post("/tasks", json={
+            "submission_id": sub_id,
+            "options": {"astrometry_api_key": "test-astro-key"},
+        })
         resp = await client.get(f"/submissions/{sub_id}")
         assert resp.json()["status"] == "processing"
 
@@ -97,6 +103,10 @@ class TestFullFlow:
 
         resp = await client.post("/tasks", json={
             "submission_id": sub_id,
-            "options": {"focal_length": 200, "pixel_size": 3.75},
+            "options": {
+                "focal_length": 200,
+                "pixel_size": 3.75,
+                "astrometry_api_key": "test-astro-key",
+            },
         })
         assert resp.status_code == 201

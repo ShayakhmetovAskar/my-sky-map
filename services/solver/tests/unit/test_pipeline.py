@@ -33,6 +33,7 @@ class TestPipeline:
         result = await pipeline.process(
             task_id=uuid4(),
             object_key="users/uid/submissions/sid/input/original.jpg",
+            options={"astrometry_api_key": "test-key"},
         )
 
         assert result["center_ra"] == 83.857
@@ -48,6 +49,7 @@ class TestPipeline:
             await pipeline.process(
                 task_id=uuid4(),
                 object_key="users/uid/submissions/sid/input/original.jpg",
+                options={"astrometry_api_key": "test-key"},
             )
 
     async def test_process_mesh_failure_graceful(self):
@@ -62,6 +64,7 @@ class TestPipeline:
         result = await pipeline.process(
             task_id=uuid4(),
             object_key="users/uid/submissions/sid/input/original.jpg",
+            options={"astrometry_api_key": "test-key"},
         )
 
         assert result["center_ra"] == 10.0
@@ -81,12 +84,23 @@ class TestGetSolver:
         with patch("worker.pipeline.settings") as mock_settings:
             mock_settings.solver_backend = "online"
             mock_settings.astrometry_api_url = "http://test"
-            mock_settings.astrometry_api_key = "test-key"
-            solver = get_solver()
+            solver = get_solver({"astrometry_api_key": "user-supplied-key"})
             assert type(solver).__name__ == "AstrometryOnlineSolver"
+
+    def test_missing_api_key_raises(self):
+        with patch("worker.pipeline.settings") as mock_settings:
+            mock_settings.solver_backend = "online"
+            with pytest.raises(ValueError, match="astrometry_api_key is required"):
+                get_solver({})
+
+    def test_no_options_raises(self):
+        with patch("worker.pipeline.settings") as mock_settings:
+            mock_settings.solver_backend = "online"
+            with pytest.raises(ValueError, match="astrometry_api_key is required"):
+                get_solver(None)
 
     def test_unknown_backend(self):
         with patch("worker.pipeline.settings") as mock_settings:
             mock_settings.solver_backend = "unknown"
             with pytest.raises(ValueError):
-                get_solver()
+                get_solver({"astrometry_api_key": "test-key"})

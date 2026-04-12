@@ -17,13 +17,15 @@ VALID_SUBMISSION = {
     "file_size_bytes": 1024,
 }
 
+TASK_OPTIONS = {"astrometry_api_key": "test-astro-key"}
+
 
 class TestErrorFlows:
     async def test_create_task_for_pending_submission(self, client: AsyncClient):
         resp = await client.post("/submissions", json=VALID_SUBMISSION)
         sub_id = resp.json()["submission_id"]
 
-        resp = await client.post("/tasks", json={"submission_id": sub_id})
+        resp = await client.post("/tasks", json={"submission_id": sub_id, "options": TASK_OPTIONS})
         assert resp.status_code == 409
 
     async def test_double_confirm(self, client: AsyncClient):
@@ -40,7 +42,7 @@ class TestErrorFlows:
         resp = await client.post("/submissions", json=VALID_SUBMISSION)
         sub_id = resp.json()["submission_id"]
         await client.post(f"/submissions/{sub_id}/confirm")
-        resp = await client.post("/tasks", json={"submission_id": sub_id})
+        resp = await client.post("/tasks", json={"submission_id": sub_id, "options": TASK_OPTIONS})
         task_id = resp.json()["id"]
 
         resp = await client.post(f"/tasks/{task_id}/cancel")
@@ -65,13 +67,13 @@ class TestErrorFlows:
             real_storage.upload_file(object_key, f.name, "image/jpeg")
 
         await client.post(f"/submissions/{sub_id}/confirm")
-        resp = await client.post("/tasks", json={"submission_id": sub_id})
+        resp = await client.post("/tasks", json={"submission_id": sub_id, "options": TASK_OPTIONS})
         task_id = resp.json()["id"]
 
         with patch("worker.pipeline.get_solver", return_value=mock_solver):
             from worker.pipeline import process
             with pytest.raises(SolveError) as exc_info:
-                await process(task_id, object_key)
+                await process(task_id, object_key, options=TASK_OPTIONS)
 
         assert exc_info.value.code == "solver_timeout"
 
@@ -79,7 +81,7 @@ class TestErrorFlows:
         resp = await client.post("/submissions", json=VALID_SUBMISSION)
         sub_id = resp.json()["submission_id"]
         await client.post(f"/submissions/{sub_id}/confirm")
-        resp = await client.post("/tasks", json={"submission_id": sub_id})
+        resp = await client.post("/tasks", json={"submission_id": sub_id, "options": TASK_OPTIONS})
         task_id = resp.json()["id"]
 
         resp = await client.get(f"/tasks/{task_id}")
@@ -99,4 +101,4 @@ class TestErrorFlows:
         assert (await client.delete(f"/submissions/{fake}")).status_code == 404
         assert (await client.get(f"/tasks/{fake}")).status_code == 404
         assert (await client.post(f"/tasks/{fake}/cancel")).status_code == 404
-        assert (await client.post("/tasks", json={"submission_id": fake})).status_code == 404
+        assert (await client.post("/tasks", json={"submission_id": fake, "options": TASK_OPTIONS})).status_code == 404

@@ -69,6 +69,11 @@ test-unit: test-deps
 test-scenario: test-deps
 	cd $(SOLVER_DIR) && DATABASE_URL=$(TEST_DB_URL) \
 		MINIO_ENDPOINT=localhost:9000 MINIO_ACCESS_KEY=minioadmin MINIO_SECRET_KEY=minioadmin MINIO_BUCKET=skymap \
+		ZITADEL_ISSUER_URL=http://host.docker.internal:8080 \
+		ZITADEL_ADMIN_PAT=$${ZITADEL_ADMIN_PAT:-} \
+		ZITADEL_AUDIENCE=$${ZITADEL_AUDIENCE:-} \
+		GUEST_ORG_ID=$${GUEST_ORG_ID:-} \
+		GUEST_CLIENT_ID=$${GUEST_CLIENT_ID:-} \
 		../../$(VENV)/python -m pytest tests/scenario -v --tb=short
 
 test: test-unit test-scenario

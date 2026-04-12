@@ -33,6 +33,7 @@ def mock_zitadel(monkeypatch):
         "token_type": "Bearer",
         "expires_in": 43199,
     })
+    fake_client.delete_user = AsyncMock(return_value=True)
 
     monkeypatch.setattr(auth_guest_module, "get_zitadel_client", lambda: fake_client)
     return fake_client
@@ -103,10 +104,39 @@ class TestGuestAuth:
         resp = await unauth_client.post("/auth/guest")
         assert resp.status_code == 503
 
-    async def test_502_when_zitadel_fails(
+    async def test_502_when_create_user_fails(
         self, unauth_client, mock_zitadel, configured_settings,
     ):
         mock_zitadel.create_shadow_user.side_effect = RuntimeError("Zitadel down")
+
+        resp = await unauth_client.post("/auth/guest")
+        assert resp.status_code == 502
+        # create_shadow_user failed before any user was created → nothing to delete
+        mock_zitadel.delete_user.assert_not_awaited()
+
+    async def test_502_and_compensating_delete_when_exchange_fails(
+        self, unauth_client, mock_zitadel, configured_settings,
+    ):
+        """If create_shadow_user succeeds but exchange_token fails,
+        we must delete the orphaned shadow user so Zitadel doesn't
+        slowly fill up with ghosts."""
+        mock_zitadel.exchange_token.side_effect = RuntimeError("Token exchange down")
+
+        resp = await unauth_client.post("/auth/guest")
+        assert resp.status_code == 502
+
+        mock_zitadel.create_shadow_user.assert_awaited_once()
+        mock_zitadel.delete_user.assert_awaited_once_with(
+            "test-pat", "guest-user-id-123"
+        )
+
+    async def test_compensating_delete_failure_is_swallowed(
+        self, unauth_client, mock_zitadel, configured_settings,
+    ):
+        """Even if the compensating delete itself fails the client must
+        still get a 502 — never a 200 with a usable token."""
+        mock_zitadel.exchange_token.side_effect = RuntimeError("Token exchange down")
+        mock_zitadel.delete_user.side_effect = RuntimeError("Zitadel unreachable")
 
         resp = await unauth_client.post("/auth/guest")
         assert resp.status_code == 502

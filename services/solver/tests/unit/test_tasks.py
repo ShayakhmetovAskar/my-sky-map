@@ -68,14 +68,15 @@ class TestCreateTask:
 
 
 class TestApiKeyResolution:
-    """Task creation must require an astrometry.net key, falling back to
-    UserSettings if one is saved. Also verifies the key is persisted in
-    task.options so the worker can read it later."""
+    """Task creation must require an astrometry.net key, upserting it
+    into the dedicated api_keys table when provided in the request. The
+    key is NEVER written to task.options — the worker looks it up by
+    user_id at pickup time."""
 
-    async def test_rejects_when_no_key_provided(self, client: AsyncClient):
+    async def test_rejects_when_no_key_stored_and_none_in_request(self, client: AsyncClient):
         sub_id = await _create_uploaded_submission(client)
 
-        # No options at all
+        # No options at all, no stored key for the user
         resp = await client.post("/tasks", json={"submission_id": sub_id})
         assert resp.status_code == 422
         assert "astrometry_api_key" in resp.json()["detail"]
@@ -83,21 +84,48 @@ class TestApiKeyResolution:
     async def test_rejects_when_only_other_options(self, client: AsyncClient):
         sub_id = await _create_uploaded_submission(client)
 
-        # Options present but no api_key field
+        # Options present but no api_key field and no stored key
         resp = await client.post("/tasks", json={
             "submission_id": sub_id,
             "options": {"focal_length": 200, "pixel_size": 3.75},
         })
         assert resp.status_code == 422
 
-    async def test_uses_key_from_request_options(self, client: AsyncClient):
+    async def test_request_key_is_upserted_and_not_stored_on_task(self, client: AsyncClient):
+        """When the request carries an api_key, it must be saved into
+        astrometry_api_keys AND stripped from task.options."""
         sub_id = await _create_uploaded_submission(client)
 
         resp = await _create_task(client, sub_id)
         assert resp.status_code == 201
         task_id = resp.json()["id"]
 
-        # Verify the key was persisted into task.options for the worker
+        from sqlalchemy import select
+        from app.models.db import AstrometryApiKey, Task
+        from tests.unit.conftest import TEST_DB_URL, TEST_USER
+        from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+
+        engine = create_async_engine(TEST_DB_URL, echo=False)
+        sm = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with sm() as db:
+            task = (await db.execute(select(Task).where(Task.id == task_id))).scalar_one()
+            # task.options must NOT leak the api key
+            assert task.options is None or "astrometry_api_key" not in (task.options or {})
+
+            stored = await db.get(AstrometryApiKey, TEST_USER)
+            assert stored is not None
+            assert stored.api_key == "test-astro-key"
+        await engine.dispose()
+
+    async def test_preserves_other_options_on_task(self, client: AsyncClient):
+        """focal_length/pixel_size stay on the task even after the api_key
+        is pulled out of the request."""
+        sub_id = await _create_uploaded_submission(client)
+
+        resp = await _create_task(client, sub_id, focal_length=200, pixel_size=3.75)
+        assert resp.status_code == 201
+        task_id = resp.json()["id"]
+
         from sqlalchemy import select
         from app.models.db import Task
         from tests.unit.conftest import TEST_DB_URL
@@ -107,17 +135,17 @@ class TestApiKeyResolution:
         sm = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         async with sm() as db:
             task = (await db.execute(select(Task).where(Task.id == task_id))).scalar_one()
-            assert task.options["astrometry_api_key"] == "test-astro-key"
+            assert task.options == {"focal_length": 200, "pixel_size": 3.75}
         await engine.dispose()
 
-    async def test_falls_back_to_user_settings(self, client: AsyncClient):
+    async def test_succeeds_with_only_stored_key(self, client: AsyncClient):
+        """User saves key via /settings, then creates a task WITHOUT
+        sending the key in options — should work."""
         sub_id = await _create_uploaded_submission(client)
 
-        # Save a key via the settings endpoint first
         save_resp = await client.put("/settings", json={"astrometry_api_key": "saved-user-key"})
         assert save_resp.status_code == 200
 
-        # Now create a task WITHOUT api_key in options — should use UserSettings
         resp = await client.post("/tasks", json={"submission_id": sub_id})
         assert resp.status_code == 201
 

@@ -9,7 +9,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
-from app.models.db import Submission, Task
+from app.models.db import AstrometryApiKey, Submission, Task
 from worker.pipeline import process
 
 logging.basicConfig(
@@ -35,9 +35,13 @@ def handle_signal(sig, frame):
 
 
 async def pick_task():
-    """Pick one pending task from DB. Returns (task_id, submission_id, object_key, options) or None.
+    """Pick one pending task from DB, resolve the owner's api key, and
+    return plain values (not ORM objects) to avoid detached session issues.
 
-    Returns plain values (not ORM objects) to avoid detached session issues.
+    Returns (task_id, user_id, submission_id, object_key, options, api_key) or None.
+    `options` are the task's stored hints (focal_length, pixel_size, ...);
+    `api_key` is fetched from astrometry_api_keys — it is never persisted
+    on the task itself.
     """
     async with async_session() as db:
         # SELECT ... FOR UPDATE SKIP LOCKED — safe for multiple workers
@@ -57,24 +61,48 @@ async def pick_task():
         task, object_key = row
         logger.info("Picked up task %s (submission %s)", task.id, task.submission_id)
 
+        api_key_row = await db.get(AstrometryApiKey, task.user_id)
+        api_key = api_key_row.api_key if api_key_row else None
+
         # Mark as processing
         task.status = "processing"
         await db.commit()
 
-    return task.id, task.submission_id, object_key, task.options
+    return task.id, task.user_id, task.submission_id, object_key, task.options, api_key
 
 
-async def process_task(task_id, submission_id, object_key, options):
-    """Process a single task (long-running). Semaphore acquired before calling."""
-    # Strip sensitive fields from stored options. The api_key was needed to run
-    # the pipeline but must not persist in the DB after the task finishes.
-    sanitized_options = {k: v for k, v in (options or {}).items() if k != "astrometry_api_key"} or None
+async def process_task(task_id, user_id, submission_id, object_key, options, api_key):
+    """Process a single task (long-running). Semaphore acquired before calling.
+
+    `api_key` is passed in-memory only — the solver pipeline never writes
+    it back to the DB, so it cannot leak into `task.options` or task results.
+    """
+    if not api_key:
+        # Owner deleted their api key between task creation and pickup.
+        async with async_session() as db:
+            await db.execute(
+                update(Task)
+                .where(Task.id == task_id)
+                .values(
+                    status="failed",
+                    error_code="missing_api_key",
+                    error_message="User has no stored astrometry.net API key at pickup time.",
+                )
+            )
+            await db.commit()
+        logger.error("Task %s failed: user %s has no stored api_key", task_id, user_id)
+        await _update_submission_status(submission_id, "failed")
+        _semaphore.release()
+        return
+
+    pipeline_options = dict(options or {})
+    pipeline_options["astrometry_api_key"] = api_key
 
     try:
         task_result = await process(
             task_id=task_id,
             object_key=object_key,
-            options=options,
+            options=pipeline_options,
         )
 
         async with async_session() as db:
@@ -84,7 +112,6 @@ async def process_task(task_id, submission_id, object_key, options):
                 .values(
                     status="completed",
                     result=task_result,
-                    options=sanitized_options,
                     completed_at=datetime.now(timezone.utc),
                 )
             )
@@ -100,7 +127,6 @@ async def process_task(task_id, submission_id, object_key, options):
                 .where(Task.id == task_id)
                 .values(
                     status="failed",
-                    options=sanitized_options,
                     error_code="processing_error",
                     error_message=str(e),
                 )
@@ -137,8 +163,10 @@ async def main():
                 await asyncio.sleep(POLL_INTERVAL)
                 continue
 
-            task_id, submission_id, object_key, options = picked
-            bg = asyncio.create_task(process_task(task_id, submission_id, object_key, options))
+            task_id, user_id, submission_id, object_key, options, api_key = picked
+            bg = asyncio.create_task(
+                process_task(task_id, user_id, submission_id, object_key, options, api_key)
+            )
             _active_tasks.add(bg)
             bg.add_done_callback(_active_tasks.discard)
 

@@ -12,7 +12,7 @@ from ..dependencies import get_current_user, get_db, get_storage
 from ..services.storage import StorageService
 
 logger = logging.getLogger(__name__)
-from ..models.db import Submission, Task, UserSettings
+from ..models.db import AstrometryApiKey, Submission, Task
 from ..models.schemas import (
     CreateTaskRequest,
     PaginatedTasks,
@@ -36,25 +36,33 @@ async def create_task(
     if submission.status != "uploaded":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Submission is not in uploaded status")
 
-    # Resolve API key: request options → UserSettings fallback
+    # Resolve api key. If it comes in the request body, upsert it into
+    # the per-user api_keys table. Either way the worker reads the key
+    # back via user_id at task pickup — `task.options` NEVER holds it.
     options_dict = body.options.model_dump() if body.options else {}
-    api_key = options_dict.get("astrometry_api_key")
-    if not api_key:
-        user_settings = await db.get(UserSettings, user_id)
-        if user_settings and user_settings.astrometry_api_key:
-            api_key = user_settings.astrometry_api_key
-            options_dict["astrometry_api_key"] = api_key
-    if not api_key:
+    request_key = options_dict.pop("astrometry_api_key", None)
+
+    if request_key:
+        existing = await db.get(AstrometryApiKey, user_id)
+        if existing:
+            existing.api_key = request_key
+        else:
+            db.add(AstrometryApiKey(user_id=user_id, api_key=request_key))
+
+    # Verify the user has a stored key. Use the live session so an upsert
+    # a few lines up is visible without a commit roundtrip.
+    stored = await db.get(AstrometryApiKey, user_id)
+    if not stored or not stored.api_key:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="astrometry_api_key is required. Provide it in options or save it in settings.",
+            detail="astrometry_api_key is required. Provide it in options or save it in /settings.",
         )
 
     task = Task(
         submission_id=submission.id,
         user_id=user_id,
         status="pending",
-        options=options_dict,
+        options=options_dict or None,
     )
     db.add(task)
     submission.status = "processing"

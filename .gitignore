@@ -16,6 +16,10 @@ services/.venv/
 *.pem
 authorized_key.json
 
+# Frontend build artifacts
+frontend/dist/
+frontend/node_modules/
+
 # Logs
 *.log
 

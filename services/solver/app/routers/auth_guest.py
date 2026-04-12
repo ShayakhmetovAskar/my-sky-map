@@ -65,39 +65,54 @@ async def create_guest(request: Request):
         )
 
     zitadel = get_zitadel_client()
+    public_name = generate_guest_name()
 
+    # 1. Create shadow user in Zitadel.
     try:
-        # 1. Generate a human-readable public name for this guest
-        public_name = generate_guest_name()
-
-        # 2. Create shadow user in Zitadel
         guest_user_id = await zitadel.create_shadow_user(
             sa_token=settings.guest_sa_key,
             org_id=settings.guest_org_id,
             public_name=public_name,
             display_name=f"Guest ({public_name})",
         )
+    except Exception:
+        logger.exception("Guest creation failed: could not create shadow user")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to create guest account. Please try again later.",
+        )
 
-        # 3. Exchange service account token for guest JWT
+    # 2. Exchange service account token for a guest JWT. If this step
+    #    fails the shadow user already exists in Zitadel, so we have to
+    #    compensate by deleting it — otherwise the Zitadel organization
+    #    slowly fills with orphaned users.
+    try:
         token_data = await zitadel.exchange_token(
             sa_token=settings.guest_sa_key,
             guest_user_id=guest_user_id,
             client_id=settings.guest_client_id,
         )
-
-        logger.info("Guest account created: %s (%s) from IP %s", public_name, guest_user_id, client_ip)
-
-        return GuestTokenResponse(
-            token=token_data["access_token"],
-            refresh_token=token_data.get("refresh_token"),
-            user_id=guest_user_id,
-            public_name=public_name,
-            expires_in=token_data["expires_in"],
+    except Exception:
+        logger.exception(
+            "Guest creation failed: token exchange for %s (%s) failed, deleting shadow user",
+            public_name,
+            guest_user_id,
         )
-
-    except Exception as e:
-        logger.error("Guest creation failed: %s", e)
+        try:
+            await zitadel.delete_user(settings.guest_sa_key, guest_user_id)
+        except Exception:
+            logger.exception("Compensating delete of guest %s also failed", guest_user_id)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Failed to create guest account. Please try again later.",
         )
+
+    logger.info("Guest account created: %s (%s) from IP %s", public_name, guest_user_id, client_ip)
+
+    return GuestTokenResponse(
+        token=token_data["access_token"],
+        refresh_token=token_data.get("refresh_token"),
+        user_id=guest_user_id,
+        public_name=public_name,
+        expires_in=token_data["expires_in"],
+    )

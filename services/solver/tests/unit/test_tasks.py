@@ -10,6 +10,13 @@ VALID_SUBMISSION = {
     "file_size_bytes": 1024,
 }
 
+# All task creations now require an astrometry.net API key. Reuse one shared
+# value across the happy-path cases so each test only has to think about
+# the behaviour it's actually exercising.
+DEFAULT_TASK_BODY_WITH_KEY = {
+    "options": {"astrometry_api_key": "test-astro-key"},
+}
+
 
 async def _create_uploaded_submission(client: AsyncClient) -> str:
     """Helper: create and confirm a submission, return its ID."""
@@ -19,11 +26,20 @@ async def _create_uploaded_submission(client: AsyncClient) -> str:
     return sub_id
 
 
+async def _create_task(client: AsyncClient, sub_id: str, **options):
+    """Helper: create a task with required api_key + extra options."""
+    body = {
+        "submission_id": sub_id,
+        "options": {"astrometry_api_key": "test-astro-key", **options},
+    }
+    return await client.post("/tasks", json=body)
+
+
 class TestCreateTask:
     async def test_success(self, client: AsyncClient):
         sub_id = await _create_uploaded_submission(client)
 
-        resp = await client.post("/tasks", json={"submission_id": sub_id})
+        resp = await _create_task(client, sub_id)
         assert resp.status_code == 201
         data = resp.json()
         assert data["status"] == "pending"
@@ -34,20 +50,75 @@ class TestCreateTask:
         create = await client.post("/submissions", json=VALID_SUBMISSION)
         sub_id = create.json()["submission_id"]
 
-        resp = await client.post("/tasks", json={"submission_id": sub_id})
+        resp = await _create_task(client, sub_id)
         assert resp.status_code == 409
 
     async def test_submission_not_found(self, client: AsyncClient):
-        resp = await client.post("/tasks", json={"submission_id": "00000000-0000-0000-0000-000000000000"})
+        resp = await client.post("/tasks", json={
+            "submission_id": "00000000-0000-0000-0000-000000000000",
+            "options": {"astrometry_api_key": "test-astro-key"},
+        })
         assert resp.status_code == 404
 
     async def test_with_options(self, client: AsyncClient):
         sub_id = await _create_uploaded_submission(client)
 
+        resp = await _create_task(client, sub_id, focal_length=200, pixel_size=3.75)
+        assert resp.status_code == 201
+
+
+class TestApiKeyResolution:
+    """Task creation must require an astrometry.net key, falling back to
+    UserSettings if one is saved. Also verifies the key is persisted in
+    task.options so the worker can read it later."""
+
+    async def test_rejects_when_no_key_provided(self, client: AsyncClient):
+        sub_id = await _create_uploaded_submission(client)
+
+        # No options at all
+        resp = await client.post("/tasks", json={"submission_id": sub_id})
+        assert resp.status_code == 422
+        assert "astrometry_api_key" in resp.json()["detail"]
+
+    async def test_rejects_when_only_other_options(self, client: AsyncClient):
+        sub_id = await _create_uploaded_submission(client)
+
+        # Options present but no api_key field
         resp = await client.post("/tasks", json={
             "submission_id": sub_id,
             "options": {"focal_length": 200, "pixel_size": 3.75},
         })
+        assert resp.status_code == 422
+
+    async def test_uses_key_from_request_options(self, client: AsyncClient):
+        sub_id = await _create_uploaded_submission(client)
+
+        resp = await _create_task(client, sub_id)
+        assert resp.status_code == 201
+        task_id = resp.json()["id"]
+
+        # Verify the key was persisted into task.options for the worker
+        from sqlalchemy import select
+        from app.models.db import Task
+        from tests.unit.conftest import TEST_DB_URL
+        from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+
+        engine = create_async_engine(TEST_DB_URL, echo=False)
+        sm = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with sm() as db:
+            task = (await db.execute(select(Task).where(Task.id == task_id))).scalar_one()
+            assert task.options["astrometry_api_key"] == "test-astro-key"
+        await engine.dispose()
+
+    async def test_falls_back_to_user_settings(self, client: AsyncClient):
+        sub_id = await _create_uploaded_submission(client)
+
+        # Save a key via the settings endpoint first
+        save_resp = await client.put("/settings", json={"astrometry_api_key": "saved-user-key"})
+        assert save_resp.status_code == 200
+
+        # Now create a task WITHOUT api_key in options — should use UserSettings
+        resp = await client.post("/tasks", json={"submission_id": sub_id})
         assert resp.status_code == 201
 
 
@@ -60,12 +131,8 @@ class TestListTasks:
 
     async def test_pagination(self, client: AsyncClient):
         sub_id = await _create_uploaded_submission(client)
-        # Create 3 tasks (submission stays "processing" after first, but we allow it for test)
-        for _ in range(3):
-            # Re-confirm to allow multiple tasks
-            pass
 
-        await client.post("/tasks", json={"submission_id": sub_id})
+        await _create_task(client, sub_id)
 
         resp = await client.get("/tasks?limit=10")
         assert resp.status_code == 200
@@ -73,7 +140,7 @@ class TestListTasks:
 
     async def test_filter_by_submission(self, client: AsyncClient):
         sub_id = await _create_uploaded_submission(client)
-        await client.post("/tasks", json={"submission_id": sub_id})
+        await _create_task(client, sub_id)
 
         resp = await client.get(f"/tasks?submission_id={sub_id}")
         assert resp.status_code == 200
@@ -88,7 +155,7 @@ class TestListTasks:
         from app.main import app
 
         sub_id = await _create_uploaded_submission(client)
-        await client.post("/tasks", json={"submission_id": sub_id})
+        await _create_task(client, sub_id)
 
         # User A sees tasks
         resp_a = await client.get("/tasks")
@@ -105,7 +172,7 @@ class TestListTasks:
 class TestGetTask:
     async def test_success(self, client: AsyncClient):
         sub_id = await _create_uploaded_submission(client)
-        create = await client.post("/tasks", json={"submission_id": sub_id})
+        create = await _create_task(client, sub_id)
         task_id = create.json()["id"]
 
         resp = await client.get(f"/tasks/{task_id}")
@@ -123,7 +190,7 @@ class TestGetTask:
 class TestCancelTask:
     async def test_cancel_pending(self, client: AsyncClient):
         sub_id = await _create_uploaded_submission(client)
-        create = await client.post("/tasks", json={"submission_id": sub_id})
+        create = await _create_task(client, sub_id)
         task_id = create.json()["id"]
 
         resp = await client.post(f"/tasks/{task_id}/cancel")

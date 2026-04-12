@@ -93,11 +93,21 @@
           <!-- Auth -->
           <div class="menu-section menu-bottom">
             <template v-if="isAuthenticated">
-              <div class="menu-user">{{ user?.name || 'User' }}</div>
+              <div class="menu-user">
+                <div class="menu-user-name">{{ user?.name || 'User' }}</div>
+                <div v-if="user?.isGuest && user?.publicName" class="menu-user-id">
+                  <span class="menu-user-id-label">Guest ID</span>
+                  <button class="menu-user-id-value" @click="copyGuestId" :title="copied ? 'Copied!' : 'Click to copy'">
+                    {{ user.publicName }}
+                    <svg v-if="!copied" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#42b983" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                  </button>
+                </div>
+              </div>
               <button class="logout-btn" @click="doLogout">Logout</button>
             </template>
             <template v-else>
-              <button class="login-btn" @click="doLogin">Login</button>
+              <router-link to="/login" class="login-btn" @click="isOpen = false">Login</router-link>
             </template>
           </div>
         </div>
@@ -168,7 +178,7 @@ const onCoordSysChange = () => {
   emit('coord-system-changed', coordSys.value)
 }
 
-const { isAuthenticated, user, login, logout } = useAuth()
+const { isAuthenticated, user, logout } = useAuth()
 
 const isOpen = ref(false)
 const lat = ref(props.latitude)
@@ -199,15 +209,40 @@ function getGPS() {
   )
 }
 
-function doLogin() {
-  isOpen.value = false
-  login()
-}
-
 function doLogout() {
   isOpen.value = false
   logout()
   window.location.href = `${AUTH_CONFIG.zitadelUrl}/oidc/v1/end_session?post_logout_redirect_uri=${encodeURIComponent(window.location.origin + '/')}`
+}
+
+const copied = ref(false)
+async function copyGuestId() {
+  const text = user.value?.publicName
+  if (!text) return
+
+  // Modern Clipboard API requires HTTPS or localhost
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      copied.value = true
+      setTimeout(() => { copied.value = false }, 1500)
+      return
+    } catch { /* fall through to legacy fallback */ }
+  }
+
+  // Legacy fallback (works on http:// and older browsers)
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  try {
+    document.execCommand('copy')
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 1500)
+  } catch { /* clipboard fully blocked */ }
+  document.body.removeChild(ta)
 }
 </script>
 
@@ -428,12 +463,53 @@ function doLogout() {
 }
 
 .menu-user {
-  color: #aaa;
-  font-size: 0.85em;
   margin-bottom: 8px;
 }
 
+.menu-user-name {
+  color: #aaa;
+  font-size: 0.85em;
+}
+
+.menu-user-id {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.menu-user-id-label {
+  color: #666;
+  font-size: 0.65em;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.menu-user-id-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  color: #ccc;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.78em;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  align-self: flex-start;
+}
+
+.menu-user-id-value:hover {
+  background: rgba(66, 185, 131, 0.1);
+  border-color: rgba(66, 185, 131, 0.3);
+  color: #fff;
+}
+
 .logout-btn, .login-btn {
+  display: block;
+  box-sizing: border-box;
   width: 100%;
   padding: 8px;
   border-radius: 6px;
@@ -442,6 +518,8 @@ function doLogout() {
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.08);
   color: #ccc;
+  text-align: center;
+  text-decoration: none;
 }
 
 .logout-btn:hover { background: rgba(244, 67, 54, 0.15); color: #f44336; border-color: #f44336; }

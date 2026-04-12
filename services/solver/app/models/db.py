@@ -60,6 +60,15 @@ class Task(Base):
         return None
 
 
+class UserSettings(Base):
+    __tablename__ = "user_settings"
+
+    user_id = Column(String, primary_key=True)
+    astrometry_api_key = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 class StarCatalog(Base):
     __tablename__ = "star_catalog"
 

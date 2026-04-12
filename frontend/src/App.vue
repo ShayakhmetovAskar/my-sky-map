@@ -19,7 +19,7 @@
           </div>
         </template>
         <template v-else>
-          <button class="auth-btn" @click="login">Login</button>
+          <router-link to="/login" class="auth-btn">Login</router-link>
         </template>
       </div>
     </div>
@@ -39,7 +39,7 @@ import { AUTH_CONFIG } from '@/settings/auth'
 
 const route = useRoute()
 const router = useRouter()
-const { isAuthenticated, user, login, logout, handleCallback, initAuth } = useAuth()
+const { isAuthenticated, user, logout, handleCallback, initAuth } = useAuth()
 
 const showMenu = ref(false)
 const showAuthBar = computed(() => route.name !== 'Scene' && route.name !== 'SceneDisplay')
@@ -54,7 +54,7 @@ function doLogout() {
 }
 
 onMounted(async () => {
-  initAuth()
+  await initAuth()
 
   const params = new URLSearchParams(window.location.search)
   if (params.has('code')) {
@@ -153,20 +153,18 @@ onMounted(async () => {
   position: absolute;
   top: 100%;
   right: 0;
-  margin-top: 4px;
-  background: rgba(28, 28, 36, 0.98);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 6px;
-  overflow: hidden;
+  /* No margin — use padding-top so the hover area is continuous from trigger */
+  padding-top: 4px;
   min-width: 120px;
 }
 
 .dropdown button {
   width: 100%;
   padding: 8px 16px;
-  background: none;
+  background: rgba(28, 28, 36, 0.98);
   color: #ccc;
-  border: none;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
   font-size: 0.85em;
   cursor: pointer;
   text-align: left;

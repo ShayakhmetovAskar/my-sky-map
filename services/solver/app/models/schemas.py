@@ -84,6 +84,12 @@ class SubmissionDetailed(SubmissionSummary):
 class SolverOptions(BaseModel):
     focal_length: Optional[confloat(ge=1.0)] = Field(None, description="Focal length in mm")
     pixel_size: Optional[confloat(ge=0.1)] = Field(None, description="Pixel size in micrometers")
+    astrometry_api_key: Optional[str] = Field(
+        None,
+        description="User's astrometry.net API key. If omitted, falls back to saved key in UserSettings.",
+        min_length=1,
+        max_length=128,
+    )
 
 
 class CreateTaskRequest(BaseModel):
@@ -127,6 +133,26 @@ class PaginatedSubmissions(BaseModel):
 class PaginatedTasks(BaseModel):
     items: list[TaskSummary]
     total: int
+
+
+# --- User Settings schemas ---
+
+class UserSettingsResponse(BaseModel):
+    astrometry_api_key: Optional[str] = Field(None, description="Masked API key (first 4 + last 4 chars)")
+
+
+class UpdateUserSettingsRequest(BaseModel):
+    astrometry_api_key: str = Field(..., min_length=1, max_length=128, description="Astrometry.net API key")
+
+
+# --- Guest Auth schemas ---
+
+class GuestTokenResponse(BaseModel):
+    token: str
+    refresh_token: Optional[str] = None
+    user_id: str
+    public_name: str = Field(..., description="Human-readable guest identifier (e.g. 'bright-nebula-a7f2')")
+    expires_in: int = Field(..., description="Token lifetime in seconds")
 
 
 # Resolve forward reference

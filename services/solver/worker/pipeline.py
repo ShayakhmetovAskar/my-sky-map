@@ -24,12 +24,16 @@ MESH_GRID_N = 40
 MESH_GRID_M = 40
 
 
-def get_solver() -> BaseSolver:
-    """Factory: create solver based on config."""
+def get_solver(options: Optional[dict] = None) -> BaseSolver:
+    """Factory: create solver based on config. Uses API key from task options."""
+    api_key = options.get("astrometry_api_key") if options else None
+    if not api_key:
+        raise ValueError("astrometry_api_key is required in task options")
+
     if settings.solver_backend == "online":
         client = AstrometryNetClient(
             api_url=settings.astrometry_api_url,
-            api_key=settings.astrometry_api_key,
+            api_key=api_key,
         )
         return AstrometryOnlineSolver(client)
     raise ValueError(f"Unknown solver backend: {settings.solver_backend}")
@@ -123,6 +127,6 @@ class Pipeline:
 async def process(task_id: UUID, object_key: str, options: Optional[dict] = None) -> dict:
     """Entry point called by worker/main.py."""
     storage = StorageService()
-    solver = get_solver()
+    solver = get_solver(options)
     pipeline = Pipeline(storage, solver)
     return await pipeline.process(task_id, object_key, options)

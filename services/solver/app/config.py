@@ -23,8 +23,12 @@ class Settings(BaseSettings):
 
     # Solver
     solver_backend: str = "online"  # "online" or "local"
-    astrometry_api_key: str = ""
     astrometry_api_url: str = "https://nova.astrometry.net/api"
+
+    # Guest auth (Zitadel service account for shadow user creation + token exchange)
+    guest_sa_key: str = ""  # Service account PAT or client secret
+    guest_org_id: str = ""  # Zitadel organization ID for guest user creation
+    guest_client_id: str = ""  # OIDC application client_id (for token exchange)
 
     # Auth (Zitadel)
     zitadel_issuer_url: str = "http://host.docker.internal:8080"

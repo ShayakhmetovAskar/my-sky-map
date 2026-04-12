@@ -12,7 +12,7 @@ from ..dependencies import get_current_user, get_db, get_storage
 from ..services.storage import StorageService
 
 logger = logging.getLogger(__name__)
-from ..models.db import Submission, Task
+from ..models.db import Submission, Task, UserSettings
 from ..models.schemas import (
     CreateTaskRequest,
     PaginatedTasks,
@@ -36,11 +36,25 @@ async def create_task(
     if submission.status != "uploaded":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Submission is not in uploaded status")
 
+    # Resolve API key: request options → UserSettings fallback
+    options_dict = body.options.model_dump() if body.options else {}
+    api_key = options_dict.get("astrometry_api_key")
+    if not api_key:
+        user_settings = await db.get(UserSettings, user_id)
+        if user_settings and user_settings.astrometry_api_key:
+            api_key = user_settings.astrometry_api_key
+            options_dict["astrometry_api_key"] = api_key
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="astrometry_api_key is required. Provide it in options or save it in settings.",
+        )
+
     task = Task(
         submission_id=submission.id,
         user_id=user_id,
         status="pending",
-        options=body.options.model_dump() if body.options else None,
+        options=options_dict,
     )
     db.add(task)
     submission.status = "processing"

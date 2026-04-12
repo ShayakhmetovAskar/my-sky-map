@@ -14,6 +14,11 @@ const routes = [
         props: true,
     },
     {
+        path: '/login',
+        name: 'Login',
+        component: () => import('@/views/Login.vue'),
+    },
+    {
         path: '/submissions',
         name: 'Submissions',
         component: () => import('@/views/Submissions.vue'),
@@ -40,11 +45,9 @@ const router = createRouter({
 
 router.beforeEach((to) => {
     if (to.meta.requiresAuth) {
-        const { getToken, login } = useAuth()
+        const { getToken } = useAuth()
         if (!getToken()) {
-            sessionStorage.setItem('auth_redirect', to.fullPath)
-            login()
-            return false
+            return { name: 'Login', query: { redirect: to.fullPath } }
         }
     }
 })

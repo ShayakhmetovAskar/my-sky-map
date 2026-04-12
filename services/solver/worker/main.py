@@ -66,6 +66,10 @@ async def pick_task():
 
 async def process_task(task_id, submission_id, object_key, options):
     """Process a single task (long-running). Semaphore acquired before calling."""
+    # Strip sensitive fields from stored options. The api_key was needed to run
+    # the pipeline but must not persist in the DB after the task finishes.
+    sanitized_options = {k: v for k, v in (options or {}).items() if k != "astrometry_api_key"} or None
+
     try:
         task_result = await process(
             task_id=task_id,
@@ -80,6 +84,7 @@ async def process_task(task_id, submission_id, object_key, options):
                 .values(
                     status="completed",
                     result=task_result,
+                    options=sanitized_options,
                     completed_at=datetime.now(timezone.utc),
                 )
             )
@@ -95,6 +100,7 @@ async def process_task(task_id, submission_id, object_key, options):
                 .where(Task.id == task_id)
                 .values(
                     status="failed",
+                    options=sanitized_options,
                     error_code="processing_error",
                     error_message=str(e),
                 )

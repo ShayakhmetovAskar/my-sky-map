@@ -16,6 +16,29 @@
 
         <!-- Upload form with Drag and Drop -->
         <div class="upload-section" v-if="!isLoading && !currentTask">
+            <!-- API key input -->
+            <div class="api-key-section">
+                <label class="api-key-label">Astrometry.net API Key</label>
+                <div class="api-key-row">
+                    <input
+                        :type="showApiKey ? 'text' : 'password'"
+                        v-model="apiKey"
+                        placeholder="Enter your API key"
+                        class="api-key-input"
+                    />
+                    <button class="api-key-toggle" @click="showApiKey = !showApiKey" :title="showApiKey ? 'Hide' : 'Show'">
+                        <svg v-if="!showApiKey" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    </button>
+                    <button v-if="!isGuest()" class="api-key-save" @click="saveApiKey" :disabled="!apiKey || apiKeySaving">
+                        {{ apiKeySaving ? '...' : 'Save' }}
+                    </button>
+                </div>
+                <a href="https://nova.astrometry.net/api_help" target="_blank" rel="noopener" class="api-key-help">
+                    Get your free key at nova.astrometry.net
+                </a>
+            </div>
+
             <!-- File preview -->
             <div v-if="file" class="file-preview">
                 <div class="preview-thumb">
@@ -48,7 +71,7 @@
                 <p class="drop-subtitle">JPEG, PNG, or FITS</p>
             </div>
 
-            <button class="solve-btn" @click="uploadImage" :disabled="!file || isUploading">
+            <button class="solve-btn" @click="uploadImage" :disabled="!file || !apiKey || isUploading">
                 <svg v-if="!isUploading" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>
                 <span v-if="isUploading" class="spinner"></span>
                 {{ isUploading ? uploadStatus : 'Solve Image' }}
@@ -165,13 +188,21 @@
 import { ref, nextTick, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import apiClient from '@/utils/apiClient'
+import { useAuth } from '@/composables/useAuth'
 
 import Scene from '@/views/Scene.vue'
+
+const { isAuthenticated, isGuest } = useAuth()
 
 const route = useRoute()
 const router = useRouter()
 const file = ref(null)
 const previewUrl = ref(null)
+
+// API key
+const apiKey = ref(localStorage.getItem('astrometryApiKey') || '')
+const showApiKey = ref(false)
+const apiKeySaving = ref(false)
 const currentTask = ref(null)
 const isUploading = ref(false)
 const isLoading = ref(false)
@@ -274,6 +305,38 @@ function formatFileSize(bytes) {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 
+// ─── Auth & API key ─────────────────────────────────────────────────────────
+
+async function saveApiKey() {
+    if (!apiKey.value) return
+    apiKeySaving.value = true
+    try {
+        await apiClient.put('/settings', { astrometry_api_key: apiKey.value })
+        localStorage.setItem('astrometryApiKey', apiKey.value)
+    } catch (err) {
+        error.value = 'Failed to save API key: ' + (err.response?.data?.detail || err.message)
+    } finally {
+        apiKeySaving.value = false
+    }
+}
+
+async function loadApiKey() {
+    // For authenticated (non-guest) users, try to load from server
+    if (isAuthenticated.value && !isGuest()) {
+        try {
+            const { data } = await apiClient.get('/settings')
+            if (data.astrometry_api_key) {
+                // Server has a saved key — show masked version, keep localStorage as full key
+                const localKey = localStorage.getItem('astrometryApiKey')
+                if (localKey) {
+                    apiKey.value = localKey
+                }
+                // If no local key, user will see empty field and needs to re-enter
+            }
+        } catch { /* ignore — settings not available */ }
+    }
+}
+
 // ─── Upload flow (4 steps) ───────────────────────────────────────────────────
 
 const uploadImage = async () => {
@@ -315,8 +378,12 @@ const uploadImage = async () => {
         // Step 4: Create task
         uploadStep.value = 3
         uploadStatus.value = 'Starting solver...'
+        // Save key to localStorage for next time
+        localStorage.setItem('astrometryApiKey', apiKey.value)
+
         const { data: task } = await apiClient.post('/tasks', {
             submission_id: submission.submission_id,
+            options: { astrometry_api_key: apiKey.value },
         })
 
         currentTask.value = task
@@ -386,6 +453,7 @@ const onKeydown = (e) => {
 
 onMounted(async () => {
     window.addEventListener('keydown', onKeydown)
+    loadApiKey()
     const taskId = route.params.taskId
     if (taskId) {
         isLoading.value = true
@@ -441,6 +509,129 @@ watch(() => route.params.taskId, async (newTaskId) => {
 </script>
 
 <style scoped>
+
+/* ─── Auth Gate ──────────────────────────────────────────────────────────── */
+
+.auth-gate {
+    text-align: center;
+    padding: 3rem 1rem;
+    background: rgba(18, 18, 24, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    margin-bottom: 2rem;
+}
+
+.auth-gate-text {
+    color: #aaa;
+    font-size: 0.95em;
+    margin-bottom: 1.5rem;
+}
+
+.auth-gate-buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+.auth-btn {
+    padding: 10px 24px;
+    border-radius: 10px;
+    font-size: 0.9em;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    transition: all 0.15s;
+}
+
+.auth-btn.login {
+    background: #42b983;
+    color: #fff;
+    border-color: #42b983;
+}
+
+.auth-btn.login:hover { background: #38a375; }
+
+.auth-btn.guest {
+    background: rgba(255, 255, 255, 0.08);
+    color: #ccc;
+}
+
+.auth-btn.guest:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
+.auth-btn.guest:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ─── API Key ────────────────────────────────────────────────────────────── */
+
+.api-key-section {
+    margin-bottom: 1.5rem;
+    padding: 16px;
+    background: rgba(18, 18, 24, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+}
+
+.api-key-label {
+    display: block;
+    color: #aaa;
+    font-size: 0.8em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+}
+
+.api-key-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.api-key-input {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.85em;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+.api-key-input::placeholder { color: #555; }
+
+.api-key-toggle, .api-key-save {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #aaa;
+    padding: 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+}
+
+.api-key-toggle:hover, .api-key-save:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
+
+.api-key-save {
+    padding: 8px 14px;
+    font-size: 0.8em;
+    font-weight: 600;
+}
+
+.api-key-save:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.api-key-help {
+    display: inline-block;
+    margin-top: 8px;
+    color: #666;
+    font-size: 0.75em;
+    text-decoration: none;
+    transition: color 0.15s;
+}
+
+.api-key-help:hover { color: #42b983; }
+
+/* ─── Page ───────────────────────────────────────────────────────────────── */
+
 .solve-page {
     max-width: 800px;
     margin: 0 auto;

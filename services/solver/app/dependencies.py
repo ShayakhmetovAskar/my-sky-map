@@ -23,7 +23,12 @@ _storage = StorageService()
 _zitadel_client = None
 
 
-def _get_zitadel_client():
+def get_zitadel_client():
+    """Lazy singleton for the Zitadel client.
+
+    Shared across request auth (`get_current_user`) and guest provisioning
+    (`auth_guest` router) so we don't keep two parallel JWKS caches.
+    """
     global _zitadel_client
     if _zitadel_client is None:
         from clients.zitadel import ZitadelClient
@@ -32,6 +37,10 @@ def _get_zitadel_client():
             audience=settings.zitadel_audience,
         )
     return _zitadel_client
+
+
+# Backwards-compat alias used inside this module.
+_get_zitadel_client = get_zitadel_client
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

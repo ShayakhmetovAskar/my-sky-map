@@ -19,6 +19,9 @@ services:
       MINIO_BUCKET: skymap
       ZITADEL_ISSUER_URL: http://host.docker.internal:8080
       ZITADEL_AUDIENCE: ${ZITADEL_AUDIENCE:-}
+      GUEST_SA_KEY: ${ZITADEL_ADMIN_PAT:-}
+      GUEST_ORG_ID: ${GUEST_ORG_ID:-}
+      GUEST_CLIENT_ID: ${GUEST_CLIENT_ID:-}
     ports:
       - "8001:8000"
     volumes:

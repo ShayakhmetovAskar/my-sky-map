@@ -9,7 +9,8 @@ Two operations sit on the same machinery — `docs/my-sky-collections-sharing.md
   was tiled.  It runs synchronously, before the row is committed away: the row is
   the only record of where those objects live, and the tiles need no auth to read.
 * **rotation** — "Stop sharing" (APO-92) and account deletion (APO-93) re-address
-  an image under a fresh secret instead of re-cutting 30–150 tiles.
+  an image under a fresh secret instead of re-cutting 30–150 tiles.  One image at a
+  time is `rotate_image_secret`; a whole revoked collection is `rotate_image_secrets`.
 
 The secret in a key is a capability: it must never reach the logs, so every
 message that may quote an object key goes through `redact_secrets` first.
@@ -21,7 +22,7 @@ import asyncio
 import logging
 import re
 import secrets
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Optional, Sequence
 from uuid import UUID
 
 from ..models.db import Task
@@ -173,6 +174,37 @@ async def rotate_image_secret(
 
         logger.info("Rotated the tile secret of task %s", task_id)
         return new_base
+
+
+async def rotate_image_secrets(
+    task_ids: Sequence[UUID],
+    *,
+    hips_storage: Optional[HipsStorage] = None,
+    session_factory=None,
+) -> int:
+    """Rotate the tile secret of each listed image. Returns how many actually moved.
+
+    The background half of `DELETE /me/collections/{id}/share` (APO-92, design §5):
+    the caller picks the images the revoked link was the last to expose, and this
+    walks them one by one.
+
+    Best-effort and independent per image — one image whose copy failed must not
+    strand the rest, and an exception escaping into `BackgroundTasks` would be
+    logged as a traceback quoting an object key, i.e. the very secret being
+    revoked.  So every failure is caught here and logged redacted.
+    """
+    rotated = 0
+    for task_id in task_ids:
+        try:
+            if await rotate_image_secret(
+                task_id, hips_storage=hips_storage, session_factory=session_factory
+            ):
+                rotated += 1
+        except Exception as e:
+            logger.warning("Secret rotation of task %s raised: %s", task_id, redact_secrets(str(e)))
+    if task_ids:
+        logger.info("Rotated the tile secrets of %s of %s revoked images", rotated, len(task_ids))
+    return rotated
 
 
 async def _discard_prefix(hips_storage: HipsStorage, prefix: str) -> None:

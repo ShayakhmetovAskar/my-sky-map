@@ -45,6 +45,8 @@
     @toggle-stars="onMySkyStars"
     @toggle-visible="onMySkyToggleVisible"
     @opacity="onMySkyOpacity"
+    @collection-filter="onMySkyCollectionFilter"
+    @reload-images="onMySkyReloadRequest"
   />
   <!-- My Sky outline labels (DOM, projected each frame) -->
   <div ref="mySkyLabelsRef" class="mysky-labels"></div>
@@ -192,10 +194,16 @@ export default {
       localStorage.setItem('mySkyStars', v ? '1' : '0');
       healpixManager?.setStarsVisible(v);
     };
-    /** Images that can actually be drawn: tiled (`ready`) and not hidden by the eye.
-     *  `tiling` ones have no moc/base yet — they only show in the list, with a spinner. */
+    // The panel's collection dropdown narrows the layer, the outlines and the hit test
+    // to one collection; `null` means "all photos" (APO-89, design §6).
+    const mySkyCollectionIds = ref(null);
+    /** Images that can actually be drawn: tiled (`ready`), in the active collection and
+     *  not hidden by the eye. `tiling` ones have no moc/base yet — they only show in the
+     *  list, with a spinner. */
     const mySkyVisible = () => mySkyImages.value
-        .filter(im => im.status === 'ready' && !mySkyHiddenIds.value.includes(im.id));
+        .filter(im => im.status === 'ready'
+            && !mySkyHiddenIds.value.includes(im.id)
+            && (!mySkyCollectionIds.value || mySkyCollectionIds.value.includes(im.id)));
     const mySkyCompareX = ref(Math.round(320 + (window.innerWidth - 320) / 2));
     let footprintManager = null;
     let userLayer = null; // UserHipsCompositeLoader
@@ -389,6 +397,19 @@ export default {
       applyMySkyOutlines();
     };
     const onMySkyOpacity = (v) => { mySkyOpacity.value = v; applyMySkyOpacity(); };
+    /** The panel picked a collection (`null` = all photos): the sky follows the list. */
+    const onMySkyCollectionFilter = (ids) => {
+      mySkyCollectionIds.value = ids ? [...ids] : null;
+      // a selection left outside the collection would keep its footprint on the sky
+      if (mySkySelectedId.value && mySkyCollectionIds.value
+          && !mySkyCollectionIds.value.includes(mySkySelectedId.value)) onMySkySelect(null);
+      applyMySkyHidden();
+      applyMySkyOutlines();
+    };
+    /** Revoking a share rotates the tile secrets in the background (APO-92), so the
+     *  `base`/`thumb` URLs in hand go stale — refetch once the rotation has had time. */
+    const MYSKY_ROTATION_GRACE_MS = 10000;
+    const onMySkyReloadRequest = () => scheduleMySkyReload(MYSKY_ROTATION_GRACE_MS);
 
     // ── My Sky data: GET /me/sky ────────────────────────────────────────────
     const MYSKY_TILING_POLL_MS = 15000;  // an image is `tiling` for a minute or two
@@ -463,6 +484,7 @@ export default {
       mySkyLoaded.value = false;
       mySkyImages.value = [];
       mySkySelectedId.value = null;
+      mySkyCollectionIds.value = null;   // the panel unmounts with its dropdown
       healpixManager?.setUserLayer(null, 0);
       userLayer?.dispose();
       userLayer = null;
@@ -876,6 +898,8 @@ export default {
       onMySkyToggle,
       onMySkyOutlines,
       onMySkyOpacity,
+      onMySkyCollectionFilter,
+      onMySkyReloadRequest,
     };
   }
 };

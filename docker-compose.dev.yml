@@ -32,8 +32,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
-        condition: service_healthy
+      # The API writes to the public HiPS bucket too (purge on submission delete,
+      # secret rotation on unshare), so it waits for the same one-shot init as the worker.
+      minio-init:
+        condition: service_completed_successfully
 
   # --- Solver Worker ---
   solver-worker:

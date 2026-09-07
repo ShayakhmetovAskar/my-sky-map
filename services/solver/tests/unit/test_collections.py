@@ -241,6 +241,21 @@ class TestUpdateCollection:
         # Whole request rejected — nothing partially written
         assert (await _get_collection(client, col["id"]))["items"] == []
 
+    async def test_tiling_task_accepted(self, client: AsyncClient, db_engine):
+        """An image still being tiled can be collected (APO-86 x APO-83).
+
+        APO-86 could not test this: `tiling` only became a `task_status` enum value with
+        APO-83's migration, so the row could not be written. It is asserted here, at the
+        point where both halves are in one branch.
+        """
+        col = await _create_collection(client)
+        task_id = await _create_task(client)
+        await _set_task_state(db_engine, task_id, "tiling", {"center_ra": 1.0})
+
+        resp = await client.patch(f"/me/collections/{col['id']}", json={"items": [task_id]})
+        assert resp.status_code == 200, resp.text
+        assert (await _get_collection(client, col["id"]))["items"] == [task_id]
+
     async def test_unknown_task_rejected(self, client: AsyncClient, db_engine):
         col = await _create_collection(client)
         ok = await _ready_task(client, db_engine)

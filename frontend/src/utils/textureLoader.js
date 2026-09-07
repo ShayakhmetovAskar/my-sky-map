@@ -16,9 +16,9 @@ class TextureLoader {
         this.failedUrls = new LRUCache(100);
 
         this.baseUrl = API_CONFIG.DSS_SURVEYS.baseUrl;
-        this.maxOrder = APP_SETTINGS.DSS_MAX_ORDER; // SPIKE APO-80: overridable per layer
-        // SPIKE APO-80: DSS tiles are decoded sRGB->linear on sampling, but dssTile shader
-        // never re-encodes, so they render dark. A user photo must keep its raw values.
+        this.maxOrder = APP_SETTINGS.DSS_MAX_ORDER; // per-instance: a layer may be shallower/deeper
+        // DSS tiles are decoded sRGB->linear on sampling and the dssTile shader never
+        // re-encodes, which is what the DSS colour curve was tuned against.
         this.textureColorSpace = THREE.SRGBColorSpace;
         this.maxConcurrent = maxConcurrent;
         this.currentCount = 0;
@@ -228,91 +228,6 @@ class TextureLoader {
 }
 
 
-// ---------------------------------------------------------------------------
-// SPIKE APO-80: loader for a sparse user HiPS layer (RGBA PNG tiles + MOC).
-// Same parent-fallback idea as TextureLoader, but gated by coverage: a cell
-// outside the MOC is never requested, and if nothing up the chain is loaded
-// yet we return null (tile draws without the layer) instead of a root texture.
-// ---------------------------------------------------------------------------
-export class UserHipsTextureLoader extends TextureLoader {
-    constructor(baseUrl, moc, maxOrder, maxConcurrent = 4) {
-        super(maxConcurrent);
-        this.baseUrl = baseUrl;
-        this.maxOrder = maxOrder;
-        // moc: { [order]: Set(pix) }
-        this.moc = moc;
-        this.rootTextures = []; // no all-sky roots for a user layer
-        this.textureColorSpace = THREE.LinearSRGBColorSpace; // no decode: photo shows as authored
-    }
-
-    has(norder, pix) {
-        const s = this.moc[norder];
-        return s ? s.has(pix) : false;
-    }
-
-    getUrl(norder, pix) {
-        return `${this.baseUrl}/Norder${norder}/Npix${pix}.png`;
-    }
-
-    load(norder, pix) {
-        if (!this.has(norder, pix)) return;
-        super.load(norder, pix);
-    }
-
-    getTexture(norder, pix) {
-        const key = this.getKey(norder, pix);
-        if (this.textureCacheMain.has(key)) {
-            const texture = this.textureCacheMain.get(key);
-            texture.userData = true;
-            return texture;
-        }
-        // closest loaded covered ancestor (requests the missing ones on the way up)
-        const found = this._resolve(norder, pix, []);
-        if (!found) return null;
-        const cached = this.textureCacheTemp.get(key);
-        if (cached && cached.userData === found.sourceKey) {
-            return cached;
-        }
-        const texture = this._crop(found.texture, found.path);
-        texture.userData = found.sourceKey; // which ancestor this crop came from
-        this.textureCacheTemp.put(key, texture);
-        return texture;
-    }
-
-    _resolve(norder, pix, path) {
-        if (norder < 0) return null;
-        const key = this.getKey(norder, pix);
-        if (this.has(norder, pix)) {
-            if (this.textureCacheMain.has(key)) {
-                return { texture: this.textureCacheMain.get(key), path, sourceKey: key };
-            }
-            this.load(norder, pix);
-        }
-        if (norder === 0) return null;
-        path.push(pix % 4);
-        return this._resolve(norder - 1, Math.floor(pix / 4), path);
-    }
-
-    _crop(texture, path) {
-        if (path.length === 0) return texture;
-        let min_u = 0, max_u = 1, min_v = 0, max_v = 1;
-        for (let i = path.length - 1; i >= 0; i--) {
-            const delta_u = (max_u - min_u) / 2;
-            const delta_v = (max_v - min_v) / 2;
-            switch (path[i]) {
-                case 0: max_u -= delta_u; min_v += delta_v; break;
-                case 1: max_u -= delta_u; max_v -= delta_v; break;
-                case 2: min_u += delta_u; min_v += delta_v; break;
-                case 3: min_u += delta_u; max_v -= delta_v; break;
-            }
-        }
-        const t = texture.clone();
-        t.repeat.set(max_u - min_u, max_v - min_v);
-        t.offset.set(min_u, min_v);
-        return t;
-    }
-}
-
 // 1x1 transparent placeholder so the sampler uniform is never null
 const EMPTY_USER_TEX = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
 EMPTY_USER_TEX.needsUpdate = true;
@@ -322,11 +237,10 @@ export class MeshLoader {
         this.textureLoader = new TextureLoader();
         this.meshCache = new LRUCache(100);
         this.group = group;
-        // SPIKE APO-80
+        // My Sky layer (see utils/userHipsComposite.js); null until Scene attaches one.
         this.userLoader = null;
         this.userOpacity = 1.0;
         this.split = { enabled: false, x: 0 };
-        window.__spikeMeshLoader = this;
         this.meshCache.onEvict = (key, mesh) => {
             this.group.remove(mesh);
 
@@ -389,12 +303,13 @@ export class MeshLoader {
         this.createMeshWithTexture(norder, pix);
     }
 
-    // SPIKE APO-80
+    /** Attach the My Sky layer, or detach it with `null`. */
     setUserLayer(loader) {
         this.userLoader = loader;
+        this.refreshUserLayer();
     }
 
-    // PROTOTYPE APO-85: re-resolve the user layer on every mesh (after the enabled set changed)
+    /** Re-resolve the user layer on every mesh (after the image list or the enabled set changed). */
     refreshUserLayer() {
         for (const [key, mesh] of this.meshCache) {
             const [order, pix] = key.split('/').map(Number);
@@ -402,7 +317,7 @@ export class MeshLoader {
         }
     }
 
-    // PROTOTYPE APO-85: compare slider (x in device pixels)
+    /** Compare slider (x in device pixels): right of it the user layer is not drawn. */
     setSplit(enabled, x) {
         this.split = { enabled, x };
         for (const [, mesh] of this.meshCache) {
@@ -411,7 +326,7 @@ export class MeshLoader {
         }
     }
 
-    // PROTOTYPE APO-85: opacity 0 hides the layer without touching the tiles
+    /** Opacity 0 hides the layer without touching the tiles. */
     setUserOpacity(value) {
         this.userOpacity = value;
         for (const [, mesh] of this.meshCache) {
@@ -424,6 +339,8 @@ export class MeshLoader {
         const u = mesh.material.uniforms;
         const tex = this.userLoader ? this.userLoader.getTexture(order, pix) : null;
         if (!tex) {
+            // back to the placeholder, so update() keeps polling this cell once a photo covers it
+            u.userMap.value = EMPTY_USER_TEX;
             u.hasUser.value = 0.0;
             return;
         }
@@ -455,7 +372,7 @@ export class MeshLoader {
                     mesh.material.uniforms.mapRepeat.value.set(texture.repeat.x, texture.repeat.y);
                 }
             }
-            // SPIKE APO-80: refresh the user layer until the real tile arrives
+            // Refresh the user layer until every contributing tile is the real one
             if (mesh && this.userLoader && !(mesh.material.uniforms.userMap.value.userData === true)) {
                 this._applyUserTexture(mesh, order, pix);
             }
@@ -511,7 +428,7 @@ export class MeshLoader {
                 map: { value: texture },
                 mapOffset: { value: new THREE.Vector2(texture.offset.x, texture.offset.y) },
                 mapRepeat: { value: new THREE.Vector2(texture.repeat.x, texture.repeat.y) },
-                // SPIKE APO-80
+                // My Sky layer
                 userMap: { value: EMPTY_USER_TEX },
                 userOffset: { value: new THREE.Vector2(0, 0) },
                 userRepeat: { value: new THREE.Vector2(1, 1) },
@@ -527,7 +444,7 @@ export class MeshLoader {
         });
 
         const mesh = new THREE.Mesh(geometry, material);
-        this._applyUserTexture(mesh, norder, pix); // SPIKE APO-80
+        this._applyUserTexture(mesh, norder, pix);
 
         // Создаем границы тайла если флаг включен
         if (debugSettings.get('showTileBounds')) {

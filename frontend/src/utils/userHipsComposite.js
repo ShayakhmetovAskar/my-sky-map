@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { LRUCache } from './LRUCache';
 
 /**
- * PROTOTYPE APO-85: user layer built from PER-IMAGE tile sets.
+ * User sky layer built from PER-IMAGE tile sets (`GET /me/sky`).
  *
  * Every solved image has its own HiPS pyramid (`image.base` + `image.moc`). For a
  * visible cell (order, pix) we take the tiles of every enabled image covering it and
@@ -31,18 +31,31 @@ export class UserHipsCompositeLoader {
         this.composites = new LRUCache(300); // `${order}/${pix}` -> { canvas, ctx, texture, state }
         this.composites.onEvict = (key, c) => c.texture.dispose();
         this.coverCache = new Map();         // `${order}/${pix}` -> images covering it (for the current enabled set)
+        this.disposed = false;
         this.setImages(images);
     }
 
+    /**
+     * Replace the image list (initial load or a refresh of `GET /me/sky`).
+     *
+     * Images without tiles yet (`status: "tiling"`) carry no `moc`/`base` and are
+     * skipped: they are listed in the panel with a spinner, not drawn. MOC keys come
+     * from JSON as strings; `kmax` falls back to the deepest order present in the MOC.
+     * Resets visibility to "everything on" — the caller re-applies its hidden set.
+     */
     setImages(images) {
-        this.images = (images || []).map(im => ({
-            ...im,
-            mocSets: Object.fromEntries(Object.entries(im.moc || {}).map(([k, v]) => [Number(k), new Set(v)])),
-            kmax: im.kmax ?? Math.max(0, ...Object.keys(im.moc || {}).map(Number)),
-        }));
+        this.images = (images || [])
+            .filter(im => im && im.base && im.moc)
+            .map(im => ({
+                ...im,
+                base: String(im.base).replace(/\/+$/, ''),
+                mocSets: Object.fromEntries(Object.entries(im.moc).map(([k, v]) => [Number(k), new Set(v)])),
+                kmax: im.kmax ?? Math.max(0, ...Object.keys(im.moc).map(Number)),
+            }));
         this.maxOrder = Math.max(0, ...this.images.map(im => im.kmax));
         this.enabled = new Set(this.images.map(im => im.id));
         this.coverCache.clear();
+        for (const [, c] of this.composites) c.state = null; // the covering set changed everywhere
     }
 
     /** Which images are drawn; anything not in `ids` is hidden. */
@@ -85,6 +98,7 @@ export class UserHipsCompositeLoader {
     }
 
     _pump() {
+        if (this.disposed) return;
         while (this.inflight < MAX_CONCURRENT && this.queue.length) {
             const { im, order, pix, key } = this.queue.shift();
             this.inflight++;
@@ -169,6 +183,8 @@ export class UserHipsCompositeLoader {
     }
 
     dispose() {
+        this.disposed = true;
+        this.queue = [];
         for (const [, c] of this.composites) c.texture.dispose();
         this.composites = new LRUCache(1);
     }

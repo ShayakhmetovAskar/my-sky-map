@@ -4,7 +4,7 @@ import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 
 /**
- * PROTOTYPE APO-85: outlines of the user's images on the sky.
+ * Outlines of the user's images on the sky.
  *
  * Exact corners come from the WCS (`image.corners`, 4 × [ra, dec] in degrees);
  * without them a square is approximated from center / field diagonal / orientation.

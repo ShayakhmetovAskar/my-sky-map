@@ -8,6 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from .config import settings
+from .services.hips_storage import HipsStorage
 from .services.storage import StorageService
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,10 @@ _storage = StorageService()
 
 # Lazy init — Zitadel client created on first use (avoids import-time HTTP calls)
 _zitadel_client = None
+
+# Lazy init — the public bucket is only touched on delete/rotate, and its
+# credentials are an optional Secret in the cluster (see docs/hips-storage.md).
+_hips_storage = None
 
 
 def _get_zitadel_client():
@@ -61,3 +66,10 @@ async def get_current_user(
 
 def get_storage() -> StorageService:
     return _storage
+
+
+def get_hips_storage() -> HipsStorage:
+    global _hips_storage
+    if _hips_storage is None:
+        _hips_storage = HipsStorage()
+    return _hips_storage

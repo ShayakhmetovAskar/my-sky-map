@@ -17,6 +17,12 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: skymap
+      # Public HiPS bucket (APO-81): per-image sky tiles, anonymous GET on img/* only
+      HIPS_ENDPOINT: host.docker.internal:9000
+      HIPS_ACCESS_KEY: minioadmin
+      HIPS_SECRET_KEY: minioadmin
+      HIPS_BUCKET: skymap-static-data
+      HIPS_PUBLIC_BASE_URL: http://localhost:9000/skymap-static-data
       ZITADEL_ISSUER_URL: http://host.docker.internal:8080
       ZITADEL_AUDIENCE: ${ZITADEL_AUDIENCE:-}
     ports:
@@ -40,6 +46,12 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: skymap
+      # Public HiPS bucket (APO-81): per-image sky tiles, anonymous GET on img/* only
+      HIPS_ENDPOINT: host.docker.internal:9000
+      HIPS_ACCESS_KEY: minioadmin
+      HIPS_SECRET_KEY: minioadmin
+      HIPS_BUCKET: skymap-static-data
+      HIPS_PUBLIC_BASE_URL: http://localhost:9000/skymap-static-data
       SOLVER_BACKEND: online
       ASTROMETRY_API_KEY: ${ASTROMETRY_API_KEY:-}
       ENABLE_DOCS: "true"
@@ -48,6 +60,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
 
   # --- Infrastructure ---
   postgres:
@@ -85,6 +99,38 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  # One-shot: create the buckets and the public-read policy for the sky tiles (APO-81).
+  # The public bucket allows ONLY s3:GetObject on img/* — no anonymous listing, nothing
+  # else readable (see docs/hips-storage.md; the same policy goes on the YC bucket).
+  minio-init:
+    image: minio/mc
+    container_name: minio_init_dev
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mc alias set local http://minio:9000 minioadmin minioadmin
+        mc mb --ignore-existing local/skymap
+        mc mb --ignore-existing local/skymap-static-data
+        cat > /tmp/hips-policy.json <<'POLICY'
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {"AWS": ["*"]},
+              "Action": ["s3:GetObject"],
+              "Resource": ["arn:aws:s3:::skymap-static-data/img/*"]
+            }
+          ]
+        }
+        POLICY
+        mc anonymous set-json /tmp/hips-policy.json local/skymap-static-data
+        mc anonymous get-json local/skymap-static-data
 
   rabbitmq:
     image: rabbitmq:3-management-alpine

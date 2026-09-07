@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..dependencies import get_current_user, get_db, get_storage
+from ..dependencies import get_current_user, get_db, get_hips_storage, get_storage
 from ..models.db import Submission
 from ..models.schemas import (
     CreateSubmissionRequest,
@@ -20,6 +20,8 @@ from ..models.schemas import (
     SubmissionDetailed,
     SubmissionSummary,
 )
+from ..services.hips_storage import HipsStorage
+from ..services.image_tiles import hips_base, purge_submission_objects, redact_secrets
 from ..services.storage import StorageService
 
 router = APIRouter(prefix="/submissions", tags=["Submissions"])
@@ -115,13 +117,38 @@ async def delete_submission(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     storage: StorageService = Depends(get_storage),
+    hips_storage: HipsStorage = Depends(get_hips_storage),
 ):
-    query = select(Submission).where(Submission.id == submission_id, Submission.user_id == user_id)
+    query = (
+        select(Submission)
+        .options(selectinload(Submission.tasks))
+        .where(Submission.id == submission_id, Submission.user_id == user_id)
+    )
     submission = (await db.execute(query)).scalar_one_or_none()
     if not submission:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found")
 
-    storage.delete_object(submission.object_key)
+    # Objects first, synchronously, and only then the row (design §3): the row holds
+    # the only pointer to the image's tile secret, and those tiles are readable by
+    # anyone who has the link — committing first would leak them permanently.
+    try:
+        removed = await purge_submission_objects(
+            user_id,
+            submission_id,
+            [hips_base(task.result) for task in submission.tasks],
+            storage=storage,
+            hips_storage=hips_storage,
+        )
+    except Exception as e:
+        logger.error("Purge of submission %s failed: %s", submission_id, redact_secrets(str(e)))
+        # `from None`: the storage error quotes the object key, i.e. the tile secret —
+        # it stays in the redacted log line above and out of any chained traceback.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Storage is unavailable, submission was not deleted",
+        ) from None
+
+    logger.info("Purged %s objects of submission %s", removed, submission_id)
     await db.delete(submission)
     await db.commit()
 

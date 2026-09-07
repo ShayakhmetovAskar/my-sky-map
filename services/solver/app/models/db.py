@@ -18,7 +18,7 @@ class Submission(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(String, nullable=False, index=True)
     status = Column(
-        Enum("pending", "uploaded", "processing", "completed", "failed", name="submission_status"),
+        Enum("pending", "uploaded", "processing", "tiling", "completed", "failed", name="submission_status"),
         nullable=False,
         default="pending",
     )
@@ -39,7 +39,7 @@ class Task(Base):
     submission_id = Column(UUID(as_uuid=True), ForeignKey("submissions.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(String, nullable=False, index=True)
     status = Column(
-        Enum("pending", "processing", "completed", "failed", "cancelled", name="task_status"),
+        Enum("pending", "processing", "tiling", "completed", "failed", "cancelled", name="task_status"),
         nullable=False,
         default="pending",
     )

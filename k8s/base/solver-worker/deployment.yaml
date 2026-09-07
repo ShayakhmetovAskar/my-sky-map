@@ -50,6 +50,23 @@ spec:
                 secretKeyRef:
                   name: skymap-secrets
                   key: MINIO_SECRET_KEY
+            # Write key for the public HiPS bucket (APO-81). Placeholder reference only —
+            # the owner creates the Secret out of band, it is not stored in the repo:
+            #   kubectl -n skymap create secret generic skymap-hips-secrets \
+            #     --from-literal=HIPS_ACCESS_KEY=... --from-literal=HIPS_SECRET_KEY=...
+            # `optional` so the pod still starts without it (tiling then reports hips_error).
+            - name: HIPS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-hips-secrets
+                  key: HIPS_ACCESS_KEY
+                  optional: true
+            - name: HIPS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-hips-secrets
+                  key: HIPS_SECRET_KEY
+                  optional: true
             - name: ASTROMETRY_API_KEY
               valueFrom:
                 secretKeyRef:

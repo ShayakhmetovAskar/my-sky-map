@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, Field, confloat, conint
+from pydantic import AfterValidator, AwareDatetime, BaseModel, Field, StringConstraints, confloat, conint, field_validator
 
 
 # --- Enums ---
@@ -118,6 +118,54 @@ class TaskDetailed(TaskSummary):
                     "hips_error. URL keys are generated on read.",
     )
     error: Optional[TaskError] = Field(None, description="Present when status is failed")
+
+
+# --- Collection schemas (My Sky) ---
+
+MAX_COLLECTIONS_PER_USER = 50
+MAX_COLLECTION_ITEMS = 200
+
+CollectionTitle = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
+
+
+def _unique_task_ids(items: list[UUID]) -> list[UUID]:
+    if len(set(items)) != len(items):
+        raise ValueError("items must not contain duplicate task ids")
+    return items
+
+
+CollectionItems = Annotated[
+    list[UUID],
+    Field(max_length=MAX_COLLECTION_ITEMS, description="Full ordered list of task ids; position = array index"),
+    AfterValidator(_unique_task_ids),
+]
+
+
+class CreateCollectionRequest(BaseModel):
+    title: CollectionTitle
+
+
+class UpdateCollectionRequest(BaseModel):
+    title: Optional[CollectionTitle] = None
+    items: Optional[CollectionItems] = None
+
+
+class CollectionResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: UUID
+    title: str
+    items: list[UUID] = Field(default_factory=list, description="Task ids ordered by position")
+    share_token: Optional[str] = None
+    expires_at: Optional[AwareDatetime] = None
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+
+    @field_validator("items", mode="before")
+    @classmethod
+    def _items_from_orm(cls, value):
+        # ORM relationship yields CollectionItem rows (already ordered by position)
+        return [getattr(item, "task_id", item) for item in value]
 
 
 # --- Pagination ---

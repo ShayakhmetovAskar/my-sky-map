@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .routers import collections, sky, stars, submissions, tasks
+from .routers import collections, public, sky, stars, submissions, tasks
 
 app = FastAPI(
     title="Plate Solver Service",
@@ -28,6 +28,7 @@ app.include_router(tasks.router)
 app.include_router(stars.router)
 app.include_router(collections.router)
 app.include_router(sky.router)
+app.include_router(public.router)  # unauthenticated: GET /public/sky/{token} (APO-88)
 
 
 @app.get("/healthcheck", tags=["System"])

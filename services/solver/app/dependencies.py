@@ -64,6 +64,20 @@ async def get_current_user(
         )
 
 
+async def get_is_guest(user_id: str = Depends(get_current_user)) -> bool:
+    """Whether the caller is a guest (shadow) account.
+
+    Guests may share, but their claim on the data is a refresh token in localStorage, so
+    anything they share has to expire on its own (design §5) — `POST /me/collections/{id}/share`
+    stamps `expires_at` when this is true.
+
+    Guest auth (APO-40) has not landed on this branch and nothing distinguishes a shadow
+    account from a real one yet, so today this is False for everyone: shares simply never
+    expire. This function is the single place APO-40 has to teach about its shadow org.
+    """
+    return False
+
+
 def get_storage() -> StorageService:
     return _storage
 

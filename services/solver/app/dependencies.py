@@ -64,6 +64,15 @@ async def get_current_user(
         )
 
 
+def get_zitadel():
+    """Zitadel client as a FastAPI dependency (see `services.account_cleanup`).
+
+    Only account deletion asks for it explicitly; `get_current_user` keeps using
+    the same lazily built instance directly.
+    """
+    return _get_zitadel_client()
+
+
 def get_storage() -> StorageService:
     return _storage
 

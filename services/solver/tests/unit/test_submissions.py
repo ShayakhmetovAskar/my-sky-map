@@ -124,7 +124,11 @@ class TestDeleteSubmission:
         resp = await client.delete(f"/submissions/{sub_id}")
         assert resp.status_code == 204
 
-        mock_storage.delete_object.assert_called_once()
+        # The whole prefix goes, not just the upload — task outputs live under it too
+        # (APO-87; see test_submission_purge.py).
+        mock_storage.delete_prefix.assert_called_once()
+        assert create.json()["object_key"].startswith(
+            mock_storage.delete_prefix.call_args.args[0] + "/")
 
         # Verify deleted
         resp2 = await client.get(f"/submissions/{sub_id}")

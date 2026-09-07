@@ -26,7 +26,9 @@ from ..models.db import Collection, CollectionItem, Submission, Task
 from ..schemas.sky import LISTED_TASK_STATUSES, PublicSkyResponse, SkyImage
 
 # `secrets.token_urlsafe(16)` — exactly 22 characters from the url-safe base64 alphabet.
-SHARE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{22}$")
+# Matched with `fullmatch`, not `match`: Python's `$` also matches just before a trailing
+# newline, so `.../sky/AAAA...%0A` would pass an anchored `match` and reach the database.
+SHARE_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{22}")
 
 # `no-store`, not `no-cache`: revocation is checked per request, so no shared cache or
 # browser may keep the manifest around after the link is turned off. `X-Robots-Tag` keeps
@@ -79,7 +81,7 @@ async def get_public_sky(token: str, db: AsyncSession = Depends(get_db)):
     """A shared collection as a sky layer manifest. No auth, no owner, no private fields."""
     # Shape check first: a scan of random paths is answered without a query, so the
     # database is never the thing absorbing a token-guessing flood.
-    if not SHARE_TOKEN_RE.match(token):
+    if not SHARE_TOKEN_RE.fullmatch(token):
         raise not_found()
 
     collection = (

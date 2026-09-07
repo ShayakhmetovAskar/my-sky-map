@@ -177,7 +177,7 @@ class TestShare:
         token = resp.json()["token"]
 
         # 16 bytes of url-safe base64, the exact shape the public router validates.
-        assert SHARE_TOKEN_RE.match(token), token
+        assert SHARE_TOKEN_RE.fullmatch(token), token
         assert len(token) == 22
         assert resp.json() == {"token": token}  # no URL: the frontend builds it
 
@@ -423,6 +423,10 @@ class TestPublicSkyRejects:
         ("../../etc/passwd", "traversal"),
         ("A" * 21 + "а", "cyrillic lookalike"),
         ("' OR 1=1 --", "sql-ish"),
+        # Python's `$` matches before a trailing newline, so an anchored `match` would
+        # let this one through to the database; the router uses `fullmatch`.
+        ("A" * 22 + "%0A", "percent-encoded trailing newline"),
+        ("A" * 22 + "%00", "percent-encoded NUL"),
     ])
     async def test_malformed_token(self, anon_client: AsyncClient, token: str, reason: str):
         resp = await anon_client.get(f"/public/sky/{token}")
@@ -445,8 +449,9 @@ class TestPublicSkyRejects:
 
         app.dependency_overrides[get_db] = override_get_db
         try:
-            resp = await anon_client.get("/public/sky/not-a-valid-token")
-            assert resp.status_code == 404
+            for token in ("not-a-valid-token", "A" * 22 + "%0A", "A" * 23):
+                resp = await anon_client.get(f"/public/sky/{token}")
+                assert resp.status_code == 404, token
             session.execute.assert_not_awaited()
 
             # Control: a well-formed token does reach the session (the mock then blows up),

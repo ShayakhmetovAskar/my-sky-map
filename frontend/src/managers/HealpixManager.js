@@ -68,7 +68,8 @@ class TileManager {
         this.meshLoader = new MeshLoader(this.dss_tiles);
         this.starsLoader = new StarsMeshLoader(this.stars_tiles);
 
-        // PROTOTYPE APO-85: user layer (per-image tiles composited on the client), injected by Scene
+        // Depth of the tile meshes. Raised by setUserLayer() when the My Sky layer
+        // (per-image tiles composited on the client) reaches deeper than the DSS.
         this.tileMaxOrder = APP_SETTINGS.DSS_MAX_ORDER;
 
         this.rootTiles = [];
@@ -234,14 +235,14 @@ export default class HealpixManager {
         // Placeholder for update logic if needed
     }
 
-    /** PROTOTYPE APO-85: attach the user layer; tile meshes go as deep as its max order
-     *  (DSS beyond DSS_MAX_ORDER falls back to parent crops through TextureLoader._getTexture). */
-    /** PROTOTYPE APO-85: catalog stars on/off (points + their labels). */
+    /** Catalog stars on/off (points + their labels). */
     setStarsVisible(visible) {
         this.starsVisible = visible;
         this.tileManager.starsLoader.starMaterial.visible = visible;
     }
 
+    /** Attach (or detach, with `null`) the My Sky layer; tile meshes then go as deep as its
+     *  max order — DSS beyond DSS_MAX_ORDER falls back to parent crops in TextureLoader._getTexture. */
     setUserLayer(loader, maxOrder) {
         this.tileManager.meshLoader.setUserLayer(loader);
         this.tileManager.tileMaxOrder = Math.max(APP_SETTINGS.DSS_MAX_ORDER, maxOrder || 0);

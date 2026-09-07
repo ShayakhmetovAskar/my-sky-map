@@ -149,7 +149,9 @@ async def process_task(task_id, submission_id, object_key, options):
                 .values(
                     status="failed",
                     error_code="processing_error",
-                    error_message=str(e),
+                    # the message reaches the user; a tiling failure can quote an
+                    # object key, and that key carries the image secret
+                    error_message=redact_secrets(str(e)),
                 )
             )
             await db.commit()

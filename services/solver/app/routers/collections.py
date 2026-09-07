@@ -1,4 +1,5 @@
-"""Collections router — owner API for My Sky collections (APO-86) and sharing (APO-88).
+"""Collections router — owner API for My Sky collections (APO-86), sharing (APO-88)
+and secret rotation on revocation (APO-92).
 
 See docs/my-sky-collections-sharing.md §3–5. Every endpoint is scoped to the
 authenticated owner (`user_id` filter + 404), and any owner request extends
@@ -10,14 +11,14 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import String, any_, bindparam, cast, delete, func, insert, or_, select, update
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
-from ..dependencies import get_current_user, get_db, get_is_guest
+from ..dependencies import get_current_user, get_db, get_hips_storage, get_is_guest
 from ..models.db import Collection, CollectionItem, Task
 from ..models.schemas import (
     MAX_COLLECTIONS_PER_USER,
@@ -26,6 +27,8 @@ from ..models.schemas import (
     ShareResponse,
     UpdateCollectionRequest,
 )
+from ..services.hips_storage import HipsStorage
+from ..services.image_tiles import rotate_image_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -215,11 +218,60 @@ async def share_collection(
     return ShareResponse(token=collection.share_token)
 
 
+def _shared_by_another_collection(collection_id: UUID):
+    """Correlated EXISTS: some *other* collection still publishes this `Task`.
+
+    Any collection, not just this owner's — the condition that matters is whether a live
+    link somewhere still hands this image out, and only the API enforces that items are
+    the owner's own.
+
+    A guest collection whose `expires_at` has passed counts as shared even though
+    `/public/sky` 404s for it: `extend_guest_expiry` revives it on the owner's next
+    request, so the owner still considers that link live.
+    """
+    other_item = aliased(CollectionItem)
+    return (
+        select(1)
+        .select_from(other_item)
+        .join(Collection, Collection.id == other_item.collection_id)
+        .where(
+            other_item.task_id == Task.id,
+            Collection.id != collection_id,
+            Collection.share_token.isnot(None),
+        )
+        .exists()
+    )
+
+
+async def _images_to_revoke(db: AsyncSession, collection_id: UUID, user_id: str) -> list[UUID]:
+    """Tiled images of this collection that no other shared collection exposes.
+
+    Only tasks that actually carry `result.hips` are returned: rotation of an untiled
+    image is a no-op, and this keeps a 200-image collection from queueing 200 sessions
+    that each find nothing to do.
+    """
+    query = (
+        select(Task.id)
+        .join(CollectionItem, CollectionItem.task_id == Task.id)
+        .where(
+            CollectionItem.collection_id == collection_id,
+            # Ownership is re-stated here as it is in `/public/sky`: a stray item must not
+            # let one user rotate — i.e. break the live tile URLs of — another user's image.
+            Task.user_id == user_id,
+            cast(Task.result, JSONB).has_key("hips"),
+            ~_shared_by_another_collection(collection_id),
+        )
+    )
+    return list((await db.execute(query)).scalars().all())
+
+
 @router.delete("/{collection_id}/share", status_code=status.HTTP_204_NO_CONTENT)
 async def unshare_collection(
     collection_id: UUID,
+    background: BackgroundTasks,
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    hips_storage: HipsStorage = Depends(get_hips_storage),
 ):
     """Revoke the link. Idempotent — unsharing a private collection is a no-op 204.
 
@@ -230,12 +282,25 @@ async def unshare_collection(
     marker that this row belongs to a guest, and both `extend_guest_expiry` and the guest
     cleanup (APO-93) key off it.
 
-    Tiles already downloaded by a viewer stay readable until the image secrets are rotated;
-    that rotation (`rotate_image_secret` for images in no other shared collection) is APO-92
-    and hooks in right here.
+    Tile URLs handed out under the revoked link outlive the manifest, so the secrets of
+    the images this collection was the last to publish are rotated in `BackgroundTasks`
+    (APO-92, design §5) — a prefix copy, not a re-cut, so the old URLs die within minutes
+    while `/me/sky` and every other collection serve the new `base`. Images still carried
+    by another shared collection are left alone: rotating those would break tile URLs a
+    viewer of a link that is still live is using right now.
+
+    Tiles a viewer already downloaded stay in their browser cache; accepted (design §5).
     """
     collection = await _get_owned_collection(db, collection_id, user_id)
-    if collection.share_token is not None:
-        collection.share_token = None
-        collection.updated_at = datetime.now(timezone.utc)
-        await db.commit()
+    if collection.share_token is None:
+        return  # never published, or already revoked — nothing to revoke, nothing to rotate
+
+    collection.share_token = None
+    collection.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    # After the commit on purpose: this collection now has no token, so "some other
+    # collection still shares it" is read off committed state rather than reconstructed.
+    task_ids = await _images_to_revoke(db, collection_id, user_id)
+    if task_ids:
+        background.add_task(rotate_image_secrets, task_ids, hips_storage=hips_storage)

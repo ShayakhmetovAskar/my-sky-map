@@ -60,9 +60,7 @@ export function footprintPlanes(image) {
 }
 
 function outlinePositions(image) {
-    const corners = image.corners
-        ? image.corners.map(([ra, dec]) => ({ ra, dec }))
-        : squareCorners(image.ra, image.dec, image.fov / Math.SQRT2, -(image.orientation || 0));
+    const corners = footprintCorners(image);
     const pts = [];
     for (let i = 0; i < 4; i++) {
         const a = corners[i], b = corners[(i + 1) % 4];
@@ -160,20 +158,13 @@ export default class FootprintManager {
         }
     }
 
-    /** Corners of the footprint as {ra, dec} (exact when known, square fallback otherwise). */
-    _corners(image) {
-        return image.corners
-            ? image.corners.map(([ra, dec]) => ({ ra, dec }))
-            : squareCorners(image.ra, image.dec, image.fov / Math.SQRT2, -(image.orientation || 0));
-    }
-
     /** Call once per frame: puts each label just above the top edge of its outline on screen. */
     update(camera, width, height) {
         if (!this.labels.length) return;
         const m = this.group.matrixWorld;
         for (const { image, el } of this.labels) {
             let minX = Infinity, maxX = -Infinity, minY = Infinity, hidden = false;
-            for (const c of this._corners(image)) {
+            for (const c of footprintCorners(image)) {
                 const v = this._v.set(...skyPoint(c.ra, c.dec)).applyMatrix4(m);
                 if (v.clone().applyMatrix4(camera.matrixWorldInverse).z > 0) { hidden = true; break; } // behind the camera
                 v.project(camera);

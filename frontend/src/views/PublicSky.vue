@@ -48,19 +48,27 @@ const state = ref('loading')
 const images = ref([])
 const title = ref('')
 
+let reqId = 0
+
 /**
  * `GET /api/v1/public/sky/{token}` — unauthenticated on purpose (see publicClient).
  * A 404 is the single answer for every dead link, so it gets its own copy; anything
  * else is treated as transient and offered a retry.
  */
 async function load() {
+  // Retry is clickable twice and the token can change under the same component
+  // instance (back/forward between two /s/ links): without a version the slower,
+  // older answer would win and show collection A under token B.
+  const my = ++reqId
   state.value = 'loading'
   try {
     const { data } = await publicClient.get(`/public/sky/${encodeURIComponent(props.token)}`)
+    if (my !== reqId) return
     title.value = data?.title || 'Shared sky'
     images.value = Array.isArray(data?.images) ? data.images : []
     state.value = 'ready'
   } catch (err) {
+    if (my !== reqId) return
     state.value = err.response?.status === 404 ? 'missing' : 'error'
   }
 }

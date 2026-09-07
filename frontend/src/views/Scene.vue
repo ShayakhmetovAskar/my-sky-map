@@ -238,6 +238,13 @@ export default {
         .filter(im => im.status === 'ready'
             && !mySkyHiddenIds.value.includes(im.id)
             && (!mySkyCollectionIds.value || mySkyCollectionIds.value.includes(im.id)));
+    /** Images an outline and a label may be drawn for — the same filters as
+     *  `mySkyVisible()` but `tiling` ones included: they already carry ra/dec/fov
+     *  (usually corners) from the solve, so the viewer can see where the photo will
+     *  land while its tiles are still being built (design §7). */
+    const mySkyOutlineable = () => mySkyImages.value
+        .filter(im => !mySkyHiddenIds.value.includes(im.id)
+            && (!mySkyCollectionIds.value || mySkyCollectionIds.value.includes(im.id)));
     const mySkyCompareX = ref(Math.round(320 + (window.innerWidth - 320) / 2));
     let footprintManager = null;
     let userLayer = null; // UserHipsCompositeLoader
@@ -287,11 +294,16 @@ export default {
       sceneManager.setSkyNorth(observer.longitude, observer.latitude);
     };
 
+    /** Single owner of the ground state: the mesh and the ref that SideMenu /
+     *  TimeSelectorV2 render must never drift apart. */
+    const setTerrain = (visible) => {
+      groundManager?.setVisible(visible);
+      terrainOn.value = visible;
+    };
+
     const onTerrainToggle = () => {
       if (groundManager && groundManager.groundMesh) {
-        const newVisible = !groundManager.groundMesh.visible;
-        groundManager.setVisible(newVisible);
-        terrainOn.value = newVisible;
+        setTerrain(!groundManager.groundMesh.visible);
       }
     };
 
@@ -354,8 +366,11 @@ export default {
     // panel → scene
     const onMySkyFly = (img) => {
       if (!controlsManager || !img) return;
-      // the target may be below the horizon right now — the ground would hide it
-      if (terrainOn.value) onTerrainToggle();
+      // The target may be below the horizon right now — the ground would hide it.
+      // Set both halves of the state instead of calling onTerrainToggle(): that one
+      // derives the new value from the mesh, so it would turn the ground back *on*
+      // whenever something else had already hidden it (a task overlay, `/s/`).
+      if (terrainOn.value) setTerrain(false);
       controlsManager.flyTo(img.ra, img.dec, Math.max(0.05, img.fov * 1.3));
     };
     const onMySkySelect = (img) => {
@@ -403,8 +418,8 @@ export default {
       history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
     };
     const applyMySkyOutlines = () => {
-      footprintManager?.setAll(mySkyOutlinesOn.value ? mySkyVisible() : null);
-      footprintManager?.setLabels(mySkyLabelsOn.value ? mySkyVisible() : null);
+      footprintManager?.setAll(mySkyOutlinesOn.value ? mySkyOutlineable() : null);
+      footprintManager?.setLabels(mySkyLabelsOn.value ? mySkyOutlineable() : null);
     };
     const applyMySkyHidden = () => {
       if (!userLayer) return;
@@ -446,6 +461,12 @@ export default {
     const onMySkyReloadRequest = () => scheduleMySkyReload(MYSKY_ROTATION_GRACE_MS);
 
     // ── Shared collection view (`/s/:token`) ────────────────────────────────
+    /** `?img=<id or id prefix>` → the matching image of `images`, or null. */
+    const findByImgParam = (images) => {
+      const wanted = new URLSearchParams(window.location.search).get('img');
+      return (wanted && images.find(im => im.id === wanted || im.id.startsWith(wanted))) || null;
+    };
+
     /** Put the camera on (ra, dec) at `fov` immediately — no flight, used at startup. */
     const setView = (raDeg, decDeg, fovDeg) => {
       if (!controlsManager || !Number.isFinite(raDeg) || !Number.isFinite(decDeg) || !Number.isFinite(fovDeg)) return;
@@ -462,12 +483,10 @@ export default {
     const bootstrapShared = () => {
       applyMySkyImages(props.sharedImages || []);
       mySkyLoaded.value = true;
-      groundManager?.setVisible(false);   // the viewer's local horizon means nothing here
-      terrainOn.value = false;
+      setTerrain(false);   // the viewer's local horizon means nothing here
 
       const q = new URLSearchParams(window.location.search);
-      const wanted = q.get('img');
-      const target = wanted && mySkyImages.value.find(im => im.id === wanted || im.id.startsWith(wanted));
+      const target = findByImgParam(mySkyImages.value);
       if (target) {
         onMySkySelect(target);
         setView(target.ra, target.dec, Math.max(0.05, (Number.isFinite(target.fov) ? target.fov : 1) * 1.3));
@@ -478,7 +497,7 @@ export default {
         if (view) setView(view.ra, view.dec, view.fov);
       }
 
-      if (q.get('tour') === '1') setTimeout(() => mySkyPanelRef.value?.startTour(), 1200);
+      if (q.get('tour') === '1') tourTimer = setTimeout(() => mySkyPanelRef.value?.startTour(), 1200);
     };
 
     // ── My Sky data: GET /me/sky ────────────────────────────────────────────
@@ -487,6 +506,10 @@ export default {
     let mySkyTimer = null;
     let mySkyFetchedAt = 0;
     let mySkyInflight = false;
+    // one-shot startup timers; cleared in onBeforeUnmount, they outlive the view otherwise
+    let deepLinkViewTimer = null;
+    let deepLinkImgTimer = null;
+    let tourTimer = null;
 
     const scheduleMySkyReload = (delayMs) => {
       clearTimeout(mySkyTimer);
@@ -511,9 +534,12 @@ export default {
     };
 
     const loadMySky = async () => {
-      clearTimeout(mySkyTimer);
       // `/s/:token` never touches `/me/*`: no Authorization, no guest token, no polling
-      if (props.shared || props.embedded || mySkyInflight || !getToken()) return;
+      if (props.shared || props.embedded || !getToken()) return;
+      // A call landing mid-request must not silently kill the pending poll: come back
+      // later instead, or the `tiling` chain dies and the row spins until a reload.
+      if (mySkyInflight) { scheduleMySkyReload(MYSKY_TILING_POLL_MS); return; }
+      clearTimeout(mySkyTimer);
       mySkyInflight = true;
       try {
         const { data } = await apiClient.get('/me/sky');
@@ -537,9 +563,8 @@ export default {
 
     /** ?img=<id or id prefix> flies to that image once the list is known. */
     const applyMySkyDeepLink = (images) => {
-      const wanted = new URLSearchParams(window.location.search).get('img');
-      const target = wanted && images.find(im => im.id === wanted || im.id.startsWith(wanted));
-      if (target) setTimeout(() => { onMySkySelect(target); onMySkyFly(target); }, 800);
+      const target = findByImgParam(images);
+      if (target) deepLinkImgTimer = setTimeout(() => { onMySkySelect(target); onMySkyFly(target); }, 800);
     };
 
     /** A photo solved in another tab should show up when this one is looked at again. */
@@ -565,6 +590,9 @@ export default {
       footprintManager?.setLabels(null);
       footprintManager?.setHover(null);
       footprintManager?.setSelected(null);
+      // "Catalog stars" lives in MySkyPanel, which has just unmounted — leaving the
+      // stars hidden would strand the user with no control to bring them back.
+      healpixManager?.setStarsVisible(true);
     });
 
     onMounted(() => {
@@ -718,16 +746,15 @@ export default {
       window.addEventListener('pointermove', onCompareMove);
       window.addEventListener('pointerup', onCompareUp);
 
-      // deep link: ?ra=&dec=&fov= (shared mode picks its opening view in bootstrapShared)
+      // deep link: ?ra=&dec=&fov= (shared mode picks its opening view in bootstrapShared).
+      // The ground is deliberately left as it is: `syncUrlFromCamera` now writes these
+      // params on every camera move, so they mirror the last view rather than mark an
+      // explicit deep link — hiding the ground here would turn it off on every reload.
+      // The fly-to-photo path (`?img=`, onMySkyFly) still hides it, where it is meant to.
       const q = new URLSearchParams(window.location.search);
       if (!props.shared && q.has('ra') && q.has('dec') && q.has('fov')) {
         const [ra, dec, fov] = [Number(q.get('ra')), Number(q.get('dec')), Number(q.get('fov'))];
-        setTimeout(() => {
-          const p = controlsManager._skyDirection(ra, dec);
-          controlsManager.camera.position.set(-p.x, -p.y, -p.z);
-          controlsManager.setFov(fov);
-          groundManager.setVisible(false);
-        }, 1500);
+        deepLinkViewTimer = setTimeout(() => setView(ra, dec, fov), 1500);
       }
       document.addEventListener('visibilitychange', onVisibilityChange);
       loadMySky();
@@ -736,7 +763,7 @@ export default {
       overlayManager = new OverlayManager(sceneManager.skyGroup, controlsManager);
 
       if (props.taskId) {
-        groundManager.setVisible(false);
+        setTerrain(false);
         overlayManager.overlay(props.taskId);
       }
 
@@ -750,6 +777,8 @@ export default {
       });
 
       sceneManager.startAnimationLoop((deltaTime, elapsedTime, scene, camera) => {
+        // the loop is stopped in onBeforeUnmount; belt and braces for a frame in flight
+        if (!sceneManager || !controlsManager) return;
 
         if (timeSelectorRef.value) {
           const smoothTime = timeSelectorRef.value.getSmoothTime(deltaTime);
@@ -863,7 +892,7 @@ export default {
     }
 
     watch(() => props.taskId, (newTaskId) => {
-      groundManager.setVisible(false);
+      setTerrain(false);
       if (newTaskId && overlayManager) {
         overlayManager.overlay(newTaskId);
       }
@@ -876,13 +905,21 @@ export default {
 
     onBeforeUnmount(() => {
       clearTimeout(mySkyTimer);
+      clearTimeout(deepLinkViewTimer);
+      clearTimeout(deepLinkImgTimer);
+      clearTimeout(tourTimer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       footprintManager?.dispose();
+      footprintManager = null;
       userLayer?.dispose();
+      userLayer = null;
       window.removeEventListener('pointermove', onCompareMove);
       window.removeEventListener('pointerup', onCompareUp);
       if (sceneManager) {
-        //sceneManager.dispose();
+        // Stops the render loop and drops the WebGL context. Without it the loop keeps
+        // firing on a torn-down scene and every mount leaks a context — `/s/:token` ↔ `/`
+        // makes that a loop, and browsers drop the oldest context after ~16.
+        sceneManager.dispose();
         sceneManager = null;
       }
       if (updateStarsInterval) {

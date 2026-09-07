@@ -297,7 +297,14 @@ const listImages = computed(() => {
 
 // The same choice drives the sky layer and the outlines: `null` means "all photos".
 const activeItemIds = computed(() => (activeCollection.value ? activeCollection.value.items.slice() : null))
-watch(activeItemIds, ids => emit('collection-filter', ids), { immediate: true })
+// `.slice()` gives a fresh array on every recomputation, and `collections` is reassigned
+// on a rename or a share toggle. Emitting then would rebuild every outline and re-draw
+// every cached composite on the sky for an unchanged list — compare before emitting.
+watch(activeItemIds, (ids, prev) => {
+  if (ids === prev) return
+  if (ids && prev && ids.length === prev.length && ids.every((v, i) => v === prev[i])) return
+  emit('collection-filter', ids)
+}, { immediate: true })
 watch(activeId, () => { focusIndex.value = -1; stopTour() })
 
 function showMessage(text) {

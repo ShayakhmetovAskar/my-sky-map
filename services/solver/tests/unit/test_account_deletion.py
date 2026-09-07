@@ -89,26 +89,44 @@ async def sessions():
     await engine.dispose()
 
 
-@pytest.fixture
-def collections_table():
-    """`collections` + `collection_items` as APO-86 defines them, dropped afterwards."""
+def deployed(table: str) -> bool:
+    return peek("SELECT to_regclass(:qualified)", qualified=f"public.{table}") is not None
+
+
+def _borrowed_or_built(create_sql: str, drop_sql: str, table: str):
+    """Yield a table to a test, whichever ticket ended up owning it.
+
+    Once APO-86 / APO-40 are merged these tables come from migrations, and the
+    fixture must leave that schema alone (dropping it would strip the tables from
+    under every other test file in the session, and from `alembic downgrade`).
+    Until then it builds the same shape itself and takes it back down.
+    """
+    if deployed(table):
+        yield
+        with _sync_engine.begin() as conn:
+            conn.execute(text(f"DELETE FROM {table}"))    # rows only — the schema is not ours
+        return
     with _sync_engine.begin() as conn:
-        conn.execute(text("DROP TABLE IF EXISTS collection_items, collections CASCADE"))
-        conn.execute(text(CREATE_COLLECTIONS))
+        conn.execute(text(create_sql))
     yield
     with _sync_engine.begin() as conn:
-        conn.execute(text("DROP TABLE IF EXISTS collection_items, collections CASCADE"))
+        conn.execute(text(drop_sql))
+
+
+@pytest.fixture
+def collections_table():
+    """`collections` + `collection_items` as APO-86 defines them."""
+    yield from _borrowed_or_built(
+        CREATE_COLLECTIONS, "DROP TABLE IF EXISTS collection_items, collections CASCADE",
+        "collections")
 
 
 @pytest.fixture
 def api_keys_table():
-    """`astrometry_api_keys` as APO-40 defines it, dropped afterwards."""
-    with _sync_engine.begin() as conn:
-        conn.execute(text("DROP TABLE IF EXISTS astrometry_api_keys CASCADE"))
-        conn.execute(text(CREATE_API_KEYS))
-    yield
-    with _sync_engine.begin() as conn:
-        conn.execute(text("DROP TABLE IF EXISTS astrometry_api_keys CASCADE"))
+    """`astrometry_api_keys` as APO-40 defines it."""
+    yield from _borrowed_or_built(
+        CREATE_API_KEYS, "DROP TABLE IF EXISTS astrometry_api_keys CASCADE",
+        "astrometry_api_keys")
 
 
 @pytest.fixture

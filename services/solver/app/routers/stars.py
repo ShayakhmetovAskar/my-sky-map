@@ -297,9 +297,10 @@ async def get_star_name(source_id: str, db: AsyncSession = Depends(get_db)):
     try:
         simbad_data = await _lookup_simbad(source_id)
     except SimbadUnavailable:
-        # Answer empty for now, but do NOT cache: this is "could not ask",
-        # not "not found". The next request will try SIMBAD again.
-        return {"ProperName": ""}
+        # "Could not ask" is not "not found": nothing is cached here, and the
+        # client gets 503 rather than an empty name it would cache for the
+        # whole session. The next request will try SIMBAD again.
+        raise HTTPException(status_code=503, detail="Star name lookup temporarily unavailable")
     if simbad_data:
         name = simbad_data.get("proper_name") or simbad_data.get("main_id") or ""
         await _save_simbad_result(db, source_id, simbad_data)

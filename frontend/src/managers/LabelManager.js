@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { LRUCache } from '@/utils/LRUCache';
 import { API_CONFIG } from '../settings/api.js';
 
+// Через сколько повторять лукап имени после ошибки (сеть, 503 при недоступном SIMBAD)
+const LOOKUP_RETRY_MS = 30_000;
+
 /**
  * LabelManager отвечает за создание и управление текстовыми подписями звезд и планет
  */
@@ -9,6 +12,10 @@ export default class LabelManager {
     constructor(scene, sceneManager = null, options = {}) {
         // Кэш названий звезд (source_id -> name)
         this.nameCache = new LRUCache(500);
+        // Неудачные лукапы (сеть, 503 когда SIMBAD недоступен) — это «не смогли спросить»,
+        // а не «имени нет». Их не кладём в nameCache, а откладываем повтор: иначе короткий
+        // сбой SIMBAD стирал подписи всех запрошенных в этот момент звёзд до перезагрузки.
+        this.lookupRetryAt = new LRUCache(500);
         
         // Кэш спрайтов звезд с освобождением ресурсов при вытеснении
         this.starSpriteCache = new LRUCache(50, (key, sprite) => {
@@ -134,6 +141,10 @@ export default class LabelManager {
      */
     async fetchAndCacheStarName(source_id) {
         if (this.nameCache.has(source_id) || this.pendingLookups.has(source_id)) return;
+        if (this.lookupRetryAt.has(source_id)) {
+            if (Date.now() < this.lookupRetryAt.get(source_id)) return;
+            this.lookupRetryAt.delete(source_id);
+        }
         // Тусклым звёздам имя ищется дольше (промах в SIMBAD), а подписей на экране 10 —
         // при лимите в 3 холодный экран заполнялся слишком долго. Бэкенд держит семафор на 10.
         if (this.pendingLookups.size >= 6) return;
@@ -145,8 +156,8 @@ export default class LabelManager {
             const data = await res.json();
             this.nameCache.put(source_id, data?.ProperName ? this.cleanStarName(data.ProperName) : null);
         } catch {
-            // Don't retry failed lookups — cache null for this session
-            this.nameCache.put(source_id, null);
+            // Не кэшируем как null — отложим повтор, чтобы не долбить сервер каждый цикл
+            this.lookupRetryAt.put(source_id, Date.now() + LOOKUP_RETRY_MS);
         } finally {
             this.pendingLookups.delete(source_id);
         }

@@ -91,14 +91,13 @@ class TestGetStarName:
             assert lookup.await_count == 2
             assert _negative_cache["77777777779"] > time.monotonic()  # re-armed
 
-    async def test_simbad_unavailable_is_not_cached(self, client):
-        """A SIMBAD outage answers empty but must not poison the negative cache."""
+    async def test_simbad_unavailable_is_503_and_not_cached(self, client):
+        """A SIMBAD outage is a 503, not an empty name, and must not poison the negative cache."""
         lookup = AsyncMock(side_effect=SimbadUnavailable("77777777780"))
         with patch("app.routers.stars._lookup_simbad", lookup), uncached("77777777780"):
             for _ in range(2):
                 res = await client.get("/stars/77777777780")
-                assert res.status_code == 200
-                assert res.json() == {"ProperName": ""}
+                assert res.status_code == 503
             assert lookup.await_count == 2  # asked again — nothing was cached
             assert "77777777780" not in _negative_cache
             assert "77777777780" not in _cache

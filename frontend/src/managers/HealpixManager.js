@@ -109,7 +109,8 @@ class TileManager {
             const key = `${tile.order}-${tile.pix}`;
             const childStars = distributeStarsToChildren(stars, tile.order);
             this.allStarsCache.put(key, childStars);
-            const topNbrightest = stars
+            // Копия: для order-0 `stars` — ссылка на массив из pointsCache
+            const topNbrightest = [...stars]
                 .sort((a, b) => a.phot_g_mean_mag - b.phot_g_mean_mag)
                 .slice(0, LABEL_CANDIDATES_PER_TILE);
             this.brightestStarsCache.put(key, topNbrightest);

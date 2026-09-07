@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
@@ -20,10 +21,25 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/stars", tags=["Stars"])
 
-# In-memory LRU cache: source_id → proper_name (or None for negative cache)
+# In-memory LRU cache: source_id → proper_name ("" for a known star without a name)
 _MAX_CACHE_SIZE = 10_000
 _cache: OrderedDict[str, Optional[str]] = OrderedDict()
 _cache_lock = asyncio.Lock()
+
+# Negative cache: source_id → monotonic expiry. Faint Gaia stars are absent from
+# SIMBAD and every miss costs three timed-out queries, so misses are remembered —
+# but only for a while, and only for a real "not found" (see SimbadUnavailable).
+NEGATIVE_CACHE_TTL = 24 * 60 * 60  # seconds
+_negative_cache: OrderedDict[str, float] = OrderedDict()
+
+
+class SimbadUnavailable(Exception):
+    """SIMBAD could not be asked (timeout, network, server error).
+
+    Distinct from "not found": callers must not negative-cache this, otherwise a
+    short SIMBAD outage would hide star names for NEGATIVE_CACHE_TTL.
+    """
+
 
 # Limit concurrent SIMBAD requests
 _simbad_semaphore = asyncio.Semaphore(10)
@@ -49,32 +65,36 @@ def _seed_cache():
 _seed_cache()
 
 
-def _evict_cache_if_needed():
+def _evict_cache_if_needed(cache: OrderedDict = _cache):
     """Remove least recently used entries if cache exceeds limit."""
-    while len(_cache) > _MAX_CACHE_SIZE:
-        _cache.popitem(last=False)  # Remove oldest (front of OrderedDict)
+    while len(cache) > _MAX_CACHE_SIZE:
+        cache.popitem(last=False)  # Remove oldest (front of OrderedDict)
+
+
+def _simbad_query_sync(query_id: str):
+    """One blocking SIMBAD query. Returns a non-empty table, or None if not found.
+
+    Deliberately does not catch exceptions: a timeout or network error must reach
+    `_lookup_simbad`, which turns it into SimbadUnavailable. Swallowing it here
+    made an outage indistinguishable from "no such star".
+    """
+    from astroquery.simbad import Simbad
+    simbad = Simbad()
+    simbad.add_votable_fields("ids", "sp", "flux(V)", "flux(B)")
+    simbad.TIMEOUT = SIMBAD_TIMEOUT
+    result = simbad.query_object(query_id)
+    if result is not None and len(result) > 0:
+        return result
+    return None
 
 
 async def _lookup_simbad(source_id: str) -> Optional[dict]:
     """Query SIMBAD for star identifiers by Gaia DR3 source_id.
 
-    Returns dict with available fields or None if not found.
+    Returns dict with available fields, or None if SIMBAD answered "not found".
+    Raises SimbadUnavailable if no query answered and at least one failed.
     Runs in thread pool since astroquery is synchronous.
     """
-
-    def _single_query(query_id):
-        """Single SIMBAD query (runs in thread pool)."""
-        try:
-            from astroquery.simbad import Simbad
-            simbad = Simbad()
-            simbad.add_votable_fields("ids", "sp", "flux(V)", "flux(B)")
-            simbad.TIMEOUT = SIMBAD_TIMEOUT
-            result = simbad.query_object(query_id)
-            if result is not None and len(result) > 0:
-                return result
-        except Exception:
-            pass
-        return None
 
     def _parse_result(result):
         """Parse SIMBAD result into dict. Extracted from _query for reuse."""
@@ -177,23 +197,26 @@ async def _lookup_simbad(source_id: str) -> Optional[dict]:
         query_ids = [f"Gaia DR3 {source_id}", f"Gaia DR2 {source_id}"]
 
     async with _simbad_semaphore:
-        try:
-            # Run all queries in parallel
-            tasks = [
-                asyncio.wait_for(asyncio.to_thread(_single_query, q), timeout=SIMBAD_TIMEOUT + 2)
-                for q in query_ids
-            ]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Run all queries in parallel
+        tasks = [
+            asyncio.wait_for(asyncio.to_thread(_simbad_query_sync, q), timeout=SIMBAD_TIMEOUT + 2)
+            for q in query_ids
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Take first successful result
-            for r in results:
-                if r is not None and not isinstance(r, Exception):
-                    return _parse_result(r)
+    # Take first successful result
+    for r in results:
+        if r is not None and not isinstance(r, BaseException):
+            return _parse_result(r)
 
-            return None
-        except Exception as e:
-            logger.warning("SIMBAD query failed for %s: %s", source_id, e)
-            return None
+    errors = [r for r in results if isinstance(r, BaseException)]
+    if errors:
+        # Nothing answered and something failed: we could not ask, which is not
+        # the same as "not found". The failed query may have been the one that
+        # would have matched.
+        logger.warning("SIMBAD unavailable for %s: %r", source_id, errors[0])
+        raise SimbadUnavailable(source_id) from errors[0]
+    return None
 
 
 async def _save_simbad_result(db: AsyncSession, source_id: str, simbad_data: dict):
@@ -246,11 +269,17 @@ def _validate_source_id(source_id: str):
 async def get_star_name(source_id: str, db: AsyncSession = Depends(get_db)):
     _validate_source_id(source_id)
 
-    # 1. In-memory cache (LRU: move to end on hit)
+    # 1. In-memory caches (LRU: move to end on hit)
     async with _cache_lock:
         if source_id in _cache:
             _cache.move_to_end(source_id)
             return {"ProperName": _cache[source_id]}
+        expires_at = _negative_cache.get(source_id)
+        if expires_at is not None:
+            if time.monotonic() < expires_at:
+                _negative_cache.move_to_end(source_id)
+                return {"ProperName": ""}
+            del _negative_cache[source_id]  # TTL passed — ask again
 
     # 2. DB lookup
     result = await db.execute(
@@ -265,7 +294,12 @@ async def get_star_name(source_id: str, db: AsyncSession = Depends(get_db)):
         return {"ProperName": name}
 
     # 3. SIMBAD fallback
-    simbad_data = await _lookup_simbad(source_id)
+    try:
+        simbad_data = await _lookup_simbad(source_id)
+    except SimbadUnavailable:
+        # Answer empty for now, but do NOT cache: this is "could not ask",
+        # not "not found". The next request will try SIMBAD again.
+        return {"ProperName": ""}
     if simbad_data:
         name = simbad_data.get("proper_name") or simbad_data.get("main_id") or ""
         await _save_simbad_result(db, source_id, simbad_data)
@@ -274,7 +308,14 @@ async def get_star_name(source_id: str, db: AsyncSession = Depends(get_db)):
             _evict_cache_if_needed()
         return {"ProperName": name}
 
-    # 4. Not found anywhere — return empty, don't cache
+    # 4. Not found anywhere — remember the miss for NEGATIVE_CACHE_TTL. Faint Gaia
+    # stars are absent from SIMBAD, and every miss costs three queries at
+    # SIMBAD_TIMEOUT each; without this the same star is re-queried on every
+    # page load. The TTL bounds the damage if SIMBAD later learns the star.
+    async with _cache_lock:
+        _negative_cache[source_id] = time.monotonic() + NEGATIVE_CACHE_TTL
+        _negative_cache.move_to_end(source_id)
+        _evict_cache_if_needed(_negative_cache)
     return {"ProperName": ""}
 
 
@@ -290,7 +331,10 @@ async def get_star_details(source_id: str, db: AsyncSession = Depends(get_db)):
 
     if not star:
         # Try SIMBAD
-        simbad_data = await _lookup_simbad(source_id)
+        try:
+            simbad_data = await _lookup_simbad(source_id)
+        except SimbadUnavailable:
+            raise HTTPException(status_code=503, detail="Star lookup temporarily unavailable")
         if simbad_data:
             await _save_simbad_result(db, source_id, simbad_data)
             result = await db.execute(

@@ -7,8 +7,17 @@ import { API_CONFIG } from '@/settings/api';
 import { createStarMaterial } from '@/utils/starShader.js';
 import { StarsMeshLoader } from '@/utils/starGeometryLoader';
 import { LRUCache } from '@/utils/LRUCache';
+import { APP_SETTINGS } from '@/settings/appSettings';
 import * as healpix from "@hscmap/healpix";
 import LabelManager from '@/managers/LabelManager';
+
+// Сколько звёзд на тайл остаётся кандидатами на подпись. При глубоком зуме тайлы
+// глубже STARS_MAX_ORDER берут кандидатов у предка, поэтому топ-100 на предке
+// оставлял тусклые звёзды вообще без шанса быть подписанными.
+const LABEL_CANDIDATES_PER_TILE = 500;
+
+// Сколько подписей одновременно на экране.
+const MAX_LABELS_ON_SCREEN = 10;
 
 class HealpixTile {
     constructor(order, pix) {
@@ -76,6 +85,11 @@ class TileManager {
         this.currentTiles = [];
         const allTiles = [];
         const queue = [...this.rootTiles];
+        // Звёзды и подложка расходятся по глубине: у звёзд пирамида доходит до 9,
+        // у DSS-снимков — только до 7. Без отдельного среза листья уходили бы на
+        // order 8-9, где textureLoader выходит по DSS_MAX_ORDER, и подложка
+        // переставала грузиться совсем.
+        const dssOrder = Math.min(targetOrder, APP_SETTINGS.DSS_MAX_ORDER);
 
         const distributeStarsToChildren = (stars, order) => {
             const childOrder = order + 1;
@@ -97,7 +111,7 @@ class TileManager {
             this.allStarsCache.put(key, childStars);
             const topNbrightest = stars
                 .sort((a, b) => a.phot_g_mean_mag - b.phot_g_mean_mag)
-                .slice(0, 100);
+                .slice(0, LABEL_CANDIDATES_PER_TILE);
             this.brightestStarsCache.put(key, topNbrightest);
         };
 
@@ -132,10 +146,12 @@ class TileManager {
 
             allTiles.push(tile);
 
+            if (tile.order === dssOrder) {
+                this.currentTiles.push(tile);
+            }
+
             if (tile.order < targetOrder) {
                 queue.push(...tile.subdivide());
-            } else {
-                this.currentTiles.push(tile);
             }
         }
 
@@ -148,7 +164,7 @@ class TileManager {
             while (currentTile.order >= 0) {
                 const key = `${currentTile.order}-${currentTile.pix}`;
                 if (this.brightestStarsCache.has(key)) {
-                    return this.brightestStarsCache.get(key);
+                    return { key, stars: this.brightestStarsCache.get(key) };
                 }
                 if (currentTile.order === 0) {
                     break;
@@ -157,7 +173,7 @@ class TileManager {
                 const parentOrder = currentTile.order - 1;
                 currentTile = { order: parentOrder, pix: parentPix };
             }
-            return [];
+            return { key: null, stars: [] };
         };
 
         const allStarsMap = new Map();
@@ -167,10 +183,20 @@ class TileManager {
         projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
         frustum.setFromProjectionMatrix(projScreenMatrix);
 
+        // Соседние тайлы часто разрешаются в один и тот же предок — его список
+        // проверяем один раз, иначе рост числа кандидатов умножается на число тайлов.
+        const checkedLists = new Set();
+        const worldPos = new THREE.Vector3();
+
         for (let tile of this.currentTiles) {
-            const brightestStars = getBrightestStarsWithFallback(tile);
-            for (let star of brightestStars) {
-                const worldPos = star.position.clone().applyMatrix4(this.group.matrixWorld);
+            const { key, stars } = getBrightestStarsWithFallback(tile);
+            if (key === null || checkedLists.has(key)) {
+                continue;
+            }
+            checkedLists.add(key);
+
+            for (let star of stars) {
+                worldPos.copy(star.position).applyMatrix4(this.group.matrixWorld);
                 if (frustum.containsPoint(worldPos)) {
                     const starKey = `${star.ra}-${star.dec}`;
                     if (!allStarsMap.has(starKey)) {
@@ -182,7 +208,7 @@ class TileManager {
 
         this.brightestStars = Array.from(allStarsMap.values())
             .sort((a, b) => a.phot_g_mean_mag - b.phot_g_mean_mag)
-            .slice(0, 10);
+            .slice(0, MAX_LABELS_ON_SCREEN);
     }
 }
 
@@ -204,6 +230,9 @@ export default class HealpixManager {
     }
 
     async setOrder(camera) {
+        // Пороги хвоста (7/8/9) подобраны так, чтобы в кадр попадало примерно
+        // столько же тайлов, сколько на уже работающих уровнях (~36): площадь
+        // ячейки падает вчетверо на уровень, поэтому fov делится пополам.
         let order = 0;
         if (camera.fov > 80) {
             order = 0;
@@ -219,10 +248,12 @@ export default class HealpixManager {
             order = 5;
         } else if (camera.fov > 1) {
             order = 6;
-        } else if (camera.fov > 0.75) {
+        } else if (camera.fov > 0.5) {
             order = 7;
+        } else if (camera.fov > 0.25) {
+            order = 8;
         } else {
-            order = 7;
+            order = 9;
         }
         await this.tileManager.setOrder(order, camera);
 

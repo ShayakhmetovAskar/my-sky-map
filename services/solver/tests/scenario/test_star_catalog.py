@@ -62,11 +62,28 @@ class TestStarCatalogFlow:
             assert resp.json()["ProperName"] == "* bet Cyg"
 
     async def test_simbad_not_found_returns_empty(self, client: AsyncClient):
-        """Star not in SIMBAD returns empty ProperName."""
-        with patch("app.routers.stars._lookup_simbad", new_callable=AsyncMock, return_value=None):
-            resp = await client.get("/stars/1111111111111111111")
-            assert resp.status_code == 200
-            assert resp.json()["ProperName"] == ""
+        """Star not in SIMBAD returns empty ProperName and the miss is cached."""
+        from app.routers.stars import _cache, _negative_cache
+
+        source_id = "1111111111111111111"
+        _cache.pop(source_id, None)
+        _negative_cache.pop(source_id, None)
+        lookup = AsyncMock(return_value=None)
+
+        try:
+            with patch("app.routers.stars._lookup_simbad", lookup):
+                resp = await client.get(f"/stars/{source_id}")
+                assert resp.status_code == 200
+                assert resp.json()["ProperName"] == ""
+
+                # Faint stars are absent from SIMBAD — don't pay for the miss twice
+                resp = await client.get(f"/stars/{source_id}")
+                assert resp.status_code == 200
+                assert resp.json()["ProperName"] == ""
+                assert lookup.await_count == 1
+        finally:
+            _cache.pop(source_id, None)
+            _negative_cache.pop(source_id, None)
 
     async def test_hip_id_lookup(self, client: AsyncClient):
         """Short IDs (≤6 digits) are queried as HIP first."""

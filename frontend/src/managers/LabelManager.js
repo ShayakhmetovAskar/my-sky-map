@@ -134,7 +134,9 @@ export default class LabelManager {
      */
     async fetchAndCacheStarName(source_id) {
         if (this.nameCache.has(source_id) || this.pendingLookups.has(source_id)) return;
-        if (this.pendingLookups.size >= 3) return;
+        // Тусклым звёздам имя ищется дольше (промах в SIMBAD), а подписей на экране 10 —
+        // при лимите в 3 холодный экран заполнялся слишком долго. Бэкенд держит семафор на 10.
+        if (this.pendingLookups.size >= 6) return;
 
         this.pendingLookups.add(source_id);
         try {

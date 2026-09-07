@@ -24,7 +24,8 @@
       </div>
     </div>
     <router-view v-slot="{ Component }">
-      <keep-alive exclude="Scene">
+      <!-- The WebGL views hold a renderer and tile caches: never keep them alive -->
+      <keep-alive exclude="Scene,PublicSky">
         <component :is="Component" />
       </keep-alive>
     </router-view>
@@ -42,7 +43,10 @@ const router = useRouter()
 const { isAuthenticated, user, login, logout, handleCallback, initAuth } = useAuth()
 
 const showMenu = ref(false)
-const showAuthBar = computed(() => route.name !== 'Scene' && route.name !== 'SceneDisplay')
+// Full-bleed sky views carry their own chrome. `/s/:token` is also deliberately free
+// of the nav bar: it must not offer a stranger links into anybody's private sections.
+const CHROMELESS_ROUTES = ['Scene', 'SceneDisplay', 'PublicSky']
+const showAuthBar = computed(() => !CHROMELESS_ROUTES.includes(route.name))
 const displayName = computed(() => user.value?.name || 'User')
 
 function doLogout() {

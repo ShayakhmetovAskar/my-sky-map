@@ -1,6 +1,7 @@
 <template>
-  <!-- Left dock listing the user's solved images -->
-  <button class="mysky-toggle" :class="{ open: isOpen }" @click="isOpen = !isOpen" title="My Sky">
+  <!-- Left dock listing solved images: the owner's own on `/`, a shared collection
+       (read-only, no dropdown / ⋯ / Share) on `/s/:token`. -->
+  <button class="mysky-toggle" :class="{ open: isOpen }" @click="isOpen = !isOpen" :title="title">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/>
     </svg>
@@ -10,7 +11,7 @@
     <aside v-if="isOpen" class="mysky-dock" tabindex="0" @keydown="onKeydown">
       <header class="dock-header">
         <div class="dock-title">
-          <span>My Sky</span>
+          <span class="dock-name" :title="title">{{ title }}</span>
           <span class="dock-count">{{ images.length }} images · {{ coverageText }}</span>
         </div>
         <button class="dock-close" @click="isOpen = false" aria-label="Close">
@@ -80,11 +81,21 @@
           <span v-if="img.status === 'tiling'" class="row-spinner" title="Building sky tiles…"></span>
         </li>
         <li v-if="images.length === 0" class="empty">
-          No solved images yet.<br /><router-link to="/solve">Solve your first image</router-link>
+          <template v-if="readOnly">This collection is empty.</template>
+          <template v-else>No solved images yet.<br /><router-link to="/solve">Solve your first image</router-link></template>
         </li>
       </ul>
 
-      <footer class="dock-footer">↑↓ browse · Enter fly · hover = outline</footer>
+      <!-- Viewer call to action: sign-up path for a stranger, a way home for a user -->
+      <div v-if="readOnly" class="dock-cta">
+        <router-link v-if="signedIn" to="/" class="cta-btn">Open My Sky</router-link>
+        <router-link v-else to="/solve" class="cta-btn">Solve your own photos →</router-link>
+      </div>
+
+      <footer class="dock-footer">
+        <span>↑↓ browse · Enter fly · hover = outline</span>
+        <a v-if="readOnly" class="report-link" :href="reportHref" rel="noopener noreferrer">Report</a>
+      </footer>
     </aside>
   </transition>
 </template>
@@ -94,6 +105,12 @@ import { ref, computed, watch, onBeforeUnmount } from 'vue'
 
 const props = defineProps({
   images: { type: Array, default: () => [] },
+  /** Header text: "My Sky" for the owner, the collection title for a viewer. */
+  title: { type: String, default: 'My Sky' },
+  /** Shared viewer: nothing here may edit the collection or write the owner's storage. */
+  readOnly: { type: Boolean, default: false },
+  /** Whether the person looking has an account — decides which CTA to show. */
+  signedIn: { type: Boolean, default: false },
   selectedId: { type: String, default: null },
   layerOn: { type: Boolean, default: true },
   outlinesOn: { type: Boolean, default: false },
@@ -106,8 +123,16 @@ const props = defineProps({
 })
 const emit = defineEmits(['fly', 'hover', 'toggle-layer', 'toggle-outlines', 'toggle-labels', 'toggle-stars', 'toggle-compare', 'toggle-visible', 'opacity', 'select'])
 
-const isOpen = ref(localStorage.getItem('mySkyDockOpen') !== '0')
-watch(isOpen, v => localStorage.setItem('mySkyDockOpen', v ? '1' : '0'))
+// A viewer's dock state is their own; it must not overwrite the owner's key.
+const DOCK_KEY = props.readOnly ? 'sharedSkyDockOpen' : 'mySkyDockOpen'
+const isOpen = ref(localStorage.getItem(DOCK_KEY) !== '0')
+watch(isOpen, v => localStorage.setItem(DOCK_KEY, v ? '1' : '0'))
+
+// Abuse reports on a shared link go to a mailbox with the link itself attached.
+const ABUSE_EMAIL = import.meta.env.VITE_ABUSE_EMAIL || 'abuse@afsh.space'
+const reportHref = computed(() =>
+  `mailto:${ABUSE_EMAIL}?subject=${encodeURIComponent('Report a shared sky')}`
+  + `&body=${encodeURIComponent(`Link: ${window.location.href}\n\nWhat is wrong:\n`)}`)
 
 const listRef = ref(null)
 const focusIndex = ref(-1)
@@ -166,7 +191,7 @@ function stopTour() {
   if (tourTimer) { clearTimeout(tourTimer); tourTimer = null }
 }
 
-defineExpose({ stopTour })
+defineExpose({ startTour, stopTour })
 onBeforeUnmount(stopTour)
 </script>
 
@@ -218,8 +243,11 @@ onBeforeUnmount(stopTour)
   min-height: 108px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
-.dock-title { display: flex; flex-direction: column; gap: 4px; }
-.dock-title > span:first-child { font-size: 1.05rem; font-weight: 600; letter-spacing: 0.02em; }
+.dock-title { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dock-name {
+  font-size: 1.05rem; font-weight: 600; letter-spacing: 0.02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .dock-count { font-size: 0.75rem; color: #8a93a0; }
 .dock-close {
   background: none; border: none; color: #8a93a0; cursor: pointer; padding: 6px; border-radius: 6px;
@@ -293,10 +321,34 @@ onBeforeUnmount(stopTour)
 .empty { padding: 24px 16px; color: #8a93a0; font-size: 0.85rem; text-align: center; line-height: 1.6; }
 .empty a { color: #42b983; }
 
+.dock-cta {
+  padding: 12px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.cta-btn {
+  display: block;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(66, 185, 131, 0.5);
+  background: rgba(66, 185, 131, 0.12);
+  color: #42b983;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-align: center;
+  text-decoration: none;
+}
+.cta-btn:hover { background: rgba(66, 185, 131, 0.22); color: #eafff4; }
+
 .dock-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   padding: 8px 14px;
   font-size: 0.7rem;
   color: #5d6570;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
+.report-link { color: #5d6570; text-decoration: none; flex-shrink: 0; }
+.report-link:hover { color: #8a93a0; text-decoration: underline; }
 </style>

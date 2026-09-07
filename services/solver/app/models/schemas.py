@@ -21,6 +21,7 @@ class SubmissionStatus(str, Enum):
     pending = "pending"
     uploaded = "uploaded"
     processing = "processing"
+    tiling = "tiling"  # solved, the worker is cutting the image into sky tiles
     completed = "completed"
     failed = "failed"
 
@@ -28,6 +29,7 @@ class SubmissionStatus(str, Enum):
 class TaskStatus(str, Enum):
     pending = "pending"
     processing = "processing"
+    tiling = "tiling"  # solved, the worker is cutting the image into sky tiles
     completed = "completed"
     failed = "failed"
     cancelled = "cancelled"
@@ -112,7 +114,8 @@ class TaskDetailed(TaskSummary):
         None,
         description="Solver result. Keys: center_ra, center_dec, pixel_scale, orientation, "
                     "field_of_view, original_image_key, annotated_image_key, wcs_key, mesh_json_key, "
-                    "astrometry_job_url. URL keys are generated on read.",
+                    "astrometry_job_url, hips (kmax, tiles, moc, base, thumb, seconds), corners, "
+                    "hips_error. URL keys are generated on read.",
     )
     error: Optional[TaskError] = Field(None, description="Present when status is failed")
 

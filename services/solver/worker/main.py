@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import signal
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -19,7 +19,8 @@ logging.basicConfig(
 logger = logging.getLogger("worker")
 
 POLL_INTERVAL = 1  # seconds
-MAX_CONCURRENT = 3  # max parallel tasks
+MAX_CONCURRENT = 3  # max parallel tasks (a task holds its slot through solve AND tiling)
+ZOMBIE_TIMEOUT = timedelta(minutes=15)  # tasks stuck in `processing`/`tiling` for longer are considered crashed
 
 engine = create_async_engine(settings.database_url, echo=False)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -65,12 +66,21 @@ async def pick_task():
 
 
 async def process_task(task_id, submission_id, object_key, options):
-    """Process a single task (long-running). Semaphore acquired before calling."""
+    """Process a single task (long-running). Semaphore acquired before calling.
+
+    Status flow: processing → tiling (solve result already stored) → completed.
+    A tiling failure still ends in `completed` with `result.hips_error` set.
+    """
+
+    async def on_solved(solve_result: dict) -> None:
+        await _mark_tiling(task_id, submission_id, solve_result)
+
     try:
         task_result = await process(
             task_id=task_id,
             object_key=object_key,
             options=options,
+            on_solved=on_solved,
         )
 
         async with async_session() as db:
@@ -105,6 +115,22 @@ async def process_task(task_id, submission_id, object_key, options):
         _semaphore.release()
 
 
+async def _mark_tiling(task_id, submission_id, solve_result: dict) -> None:
+    """Solve is done: publish its result and move task + submission to `tiling`.
+
+    The submissions list shows the submission status, so both rows are updated.
+    """
+    async with async_session() as db:
+        await db.execute(
+            update(Task)
+            .where(Task.id == task_id)
+            .values(status="tiling", result=solve_result)
+        )
+        await db.commit()
+    logger.info("Task %s → tiling", task_id)
+    await _update_submission_status(submission_id, "tiling")
+
+
 async def _update_submission_status(submission_id, status: str) -> None:
     """Update submission status based on task result."""
     async with async_session() as db:
@@ -117,8 +143,60 @@ async def _update_submission_status(submission_id, status: str) -> None:
     logger.info("Submission %s → %s", submission_id, status)
 
 
+async def _recover_zombie_tasks() -> None:
+    """Rescue tasks stuck in `processing` or `tiling` past the timeout.
+
+    Catches the case where a worker crashed (OOM, SIGKILL, k8s evict) after
+    `pick_task` flipped the row but before `process_task` could write a final
+    status. Without this those tasks would spin forever in the UI.
+
+    - `processing` zombies → `failed` (`worker_crash`): the solve never finished.
+    - `tiling` zombies → `completed` + `result.hips_error`: the solve result was
+      already stored when tiling started, only the sky layer is missing.
+
+    Runs once at worker startup. The 15-minute window is intentionally longer
+    than any realistic single-task latency so we never fail a task that another
+    worker is still legitimately processing.
+    """
+    cutoff = datetime.now(timezone.utc) - ZOMBIE_TIMEOUT
+    async with async_session() as db:
+        zombies = (await db.execute(
+            select(Task)
+            .where(Task.status.in_(("processing", "tiling")))
+            .where(Task.updated_at < cutoff)
+        )).scalars().all()
+
+        if not zombies:
+            return
+
+        outcomes = []
+        for task in zombies:
+            if task.status == "tiling":
+                result = dict(task.result or {})
+                result["hips_error"] = "Worker crashed while building the sky layer."
+                task.status = "completed"
+                task.result = result
+                task.completed_at = datetime.now(timezone.utc)
+                outcomes.append((task.id, task.submission_id, "completed"))
+            else:
+                task.status = "failed"
+                task.error_code = "worker_crash"
+                task.error_message = "Worker crashed before the task could complete. Please retry."
+                outcomes.append((task.id, task.submission_id, "failed"))
+        await db.commit()
+
+    logger.warning("Recovered %d zombie tasks", len(outcomes))
+    for _, submission_id, status in outcomes:
+        await _update_submission_status(submission_id, status)
+
+
 async def main():
     logger.info("Worker started, polling every %ss (max %s concurrent)", POLL_INTERVAL, MAX_CONCURRENT)
+
+    try:
+        await _recover_zombie_tasks()
+    except Exception as e:
+        logger.error("Zombie task recovery failed: %s", e)
 
     while not _shutdown_event.is_set():
         try:

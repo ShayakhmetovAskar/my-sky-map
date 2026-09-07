@@ -6,7 +6,6 @@ import { MeshLoader } from '@/utils/textureLoader';
 import { API_CONFIG } from '@/settings/api';
 import { createStarMaterial } from '@/utils/starShader.js';
 import { StarsMeshLoader } from '@/utils/starGeometryLoader';
-import { UserHipsTextureLoader } from '@/utils/textureLoader';
 import { LRUCache } from '@/utils/LRUCache';
 import { APP_SETTINGS } from '@/settings/appSettings';
 import * as healpix from "@hscmap/healpix";
@@ -20,11 +19,6 @@ const LABEL_CANDIDATES_PER_TILE = 500;
 // Сколько подписей одновременно на экране.
 const MAX_LABELS_ON_SCREEN = 10;
 
-// SPIKE APO-80: sparse user HiPS layer from the test prefix, enabled with ?mysky=1
-const SPIKE_HIPS_BASE = 'https://storage.yandexcloud.net/skymap-static-data/spike/hips';
-const SPIKE_HIPS_MAX_ORDER = 8;
-const SPIKE_PARAMS = new URLSearchParams(window.location.search);
-const SPIKE_ENABLED = SPIKE_PARAMS.has('mysky') && !SPIKE_PARAMS.has('nolayer');
 
 class HealpixTile {
     constructor(order, pix) {
@@ -74,22 +68,8 @@ class TileManager {
         this.meshLoader = new MeshLoader(this.dss_tiles);
         this.starsLoader = new StarsMeshLoader(this.stars_tiles);
 
-        // SPIKE APO-80
+        // PROTOTYPE APO-85: user layer (per-image tiles composited on the client), injected by Scene
         this.tileMaxOrder = APP_SETTINGS.DSS_MAX_ORDER;
-        if (SPIKE_ENABLED) {
-            fetch(`${SPIKE_HIPS_BASE}/moc.json`)
-                .then(r => r.json())
-                .then(({ orders }) => {
-                    const moc = {};
-                    for (const [k, pixes] of Object.entries(orders)) moc[Number(k)] = new Set(pixes);
-                    this.meshLoader.setUserLayer(new UserHipsTextureLoader(SPIKE_HIPS_BASE, moc, SPIKE_HIPS_MAX_ORDER));
-                    // tile meshes must go as deep as the user layer; DSS beyond its max order
-                    // falls back to parent crops through TextureLoader._getTexture
-                    this.tileMaxOrder = Math.max(APP_SETTINGS.DSS_MAX_ORDER, SPIKE_HIPS_MAX_ORDER);
-                    console.info('[spike] user HiPS layer on:', Object.fromEntries(Object.entries(moc).map(([k, s]) => [k, s.size])));
-                })
-                .catch(e => console.warn('[spike] moc load failed', e));
-        }
 
         this.rootTiles = [];
         for (let pix = 0; pix < 12; pix++) {
@@ -254,6 +234,19 @@ export default class HealpixManager {
         // Placeholder for update logic if needed
     }
 
+    /** PROTOTYPE APO-85: attach the user layer; tile meshes go as deep as its max order
+     *  (DSS beyond DSS_MAX_ORDER falls back to parent crops through TextureLoader._getTexture). */
+    /** PROTOTYPE APO-85: catalog stars on/off (points + their labels). */
+    setStarsVisible(visible) {
+        this.starsVisible = visible;
+        this.tileManager.starsLoader.starMaterial.visible = visible;
+    }
+
+    setUserLayer(loader, maxOrder) {
+        this.tileManager.meshLoader.setUserLayer(loader);
+        this.tileManager.tileMaxOrder = Math.max(APP_SETTINGS.DSS_MAX_ORDER, maxOrder || 0);
+    }
+
     async setOrder(camera) {
         // Пороги хвоста (7/8/9) подобраны так, чтобы в кадр попадало примерно
         // столько же тайлов, сколько на уже работающих уровнях (~36): площадь
@@ -284,6 +277,6 @@ export default class HealpixManager {
 
         // Используем новый умный метод обновления лейблов
         const brightestStars = this.tileManager.brightestStars || [];
-        this.labelManager.updateStarLabels(brightestStars, camera);
+        this.labelManager.updateStarLabels(this.starsVisible === false ? [] : brightestStars, camera);
     }
 }

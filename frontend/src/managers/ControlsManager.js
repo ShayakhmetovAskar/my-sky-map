@@ -293,8 +293,68 @@ export default class ControlsManager {
     this._onFovChange(newFov);
   }
 
+  // ── PROTOTYPE APO-85: smooth flight to a sky position ──────────────────────
+  /** World-space unit vector pointing at (ra, dec) in degrees, including the skyGroup rotation. */
+  _skyDirection(raDeg, decDeg) {
+    const ra = THREE.MathUtils.degToRad(raDeg);
+    const dec = THREE.MathUtils.degToRad(decDeg);
+    const p = new THREE.Vector3(-Math.cos(dec) * Math.sin(ra), Math.sin(dec), -Math.cos(dec) * Math.cos(ra));
+    if (this.skyGroup) p.applyQuaternion(this.skyGroup.quaternion);
+    return p.normalize();
+  }
+
+  /**
+   * Fly to (raDeg, decDeg) and end at fovDeg. Great-circle path, fov interpolated in log space
+   * with a "zoom-out bump" on long hops (like Google Earth), ease-in-out. Any user input cancels.
+   * Returns a promise resolved when the flight ends (true) or is cancelled (false).
+   */
+  flyTo(raDeg, decDeg, fovDeg, { duration } = {}) {
+    this.cancelFlight();
+    this.unlockTarget();
+
+    const start = this.camera.position.clone().normalize().negate(); // camera looks through the origin
+    const target = this._skyDirection(raDeg, decDeg);
+    const angleDeg = THREE.MathUtils.radToDeg(start.angleTo(target));
+    const f0 = this.currentFov;
+    const f1 = THREE.MathUtils.clamp(fovDeg, this.fovMin, this.fovMax);
+    const dur = (duration ?? Math.min(2.0, 0.6 + 0.3 * angleDeg / 30)) * 1000;
+    // zoom out mid-flight so the hop stays readable; nothing for tiny hops, up to x4 for long ones
+    const bump = Math.log(1 + Math.min(3, Math.max(0, angleDeg - 2) / 25));
+    const rot = new THREE.Quaternion().setFromUnitVectors(start, target);
+    const identity = new THREE.Quaternion();
+    const t0 = performance.now();
+    const ease = t => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+    return new Promise(resolve => {
+      const step = now => {
+        if (this._flight !== step) return resolve(false);
+        if (this.userIsInteracting || this._isDragging) { this._flight = null; return resolve(false); }
+        const t = Math.min(1, (now - t0) / dur);
+        const e = ease(t);
+        const dir = start.clone().applyQuaternion(identity.clone().slerp(rot, e));
+        const fov = Math.exp(THREE.MathUtils.lerp(Math.log(f0), Math.log(f1), e) + bump * Math.sin(Math.PI * t));
+        const dist = this.camera.position.length();
+        this.camera.position.copy(dir.multiplyScalar(-dist));
+        this._onFovChange(Math.min(fov, this.fovMax));
+        if (t < 1) {
+          requestAnimationFrame(step);
+        } else {
+          this._flight = null;
+          resolve(true);
+        }
+      };
+      this._flight = step;
+      requestAnimationFrame(step);
+    });
+  }
+
+  cancelFlight() {
+    this._flight = null;
+  }
+
   onWheel(event) {
     event.preventDefault();
+    this.cancelFlight();
     const delta = event.deltaY * 0.05 * (this.currentFov / 60);
     const newFov = THREE.MathUtils.clamp(this.currentFov + delta, this.fovMin, this.fovMax);
 

@@ -325,6 +325,7 @@ export class MeshLoader {
         // SPIKE APO-80
         this.userLoader = null;
         this.userOpacity = 1.0;
+        this.split = { enabled: false, x: 0 };
         window.__spikeMeshLoader = this;
         this.meshCache.onEvict = (key, mesh) => {
             this.group.remove(mesh);
@@ -391,6 +392,32 @@ export class MeshLoader {
     // SPIKE APO-80
     setUserLayer(loader) {
         this.userLoader = loader;
+    }
+
+    // PROTOTYPE APO-85: re-resolve the user layer on every mesh (after the enabled set changed)
+    refreshUserLayer() {
+        for (const [key, mesh] of this.meshCache) {
+            const [order, pix] = key.split('/').map(Number);
+            this._applyUserTexture(mesh, order, pix);
+        }
+    }
+
+    // PROTOTYPE APO-85: compare slider (x in device pixels)
+    setSplit(enabled, x) {
+        this.split = { enabled, x };
+        for (const [, mesh] of this.meshCache) {
+            const u = mesh.material?.uniforms;
+            if (u?.splitEnabled) { u.splitEnabled.value = enabled ? 1.0 : 0.0; u.splitX.value = x; }
+        }
+    }
+
+    // PROTOTYPE APO-85: opacity 0 hides the layer without touching the tiles
+    setUserOpacity(value) {
+        this.userOpacity = value;
+        for (const [, mesh] of this.meshCache) {
+            const u = mesh.material?.uniforms;
+            if (u?.userOpacity) u.userOpacity.value = value;
+        }
     }
 
     _applyUserTexture(mesh, order, pix) {
@@ -490,6 +517,8 @@ export class MeshLoader {
                 userRepeat: { value: new THREE.Vector2(1, 1) },
                 userOpacity: { value: this.userOpacity },
                 hasUser: { value: 0.0 },
+                splitEnabled: { value: this.split.enabled ? 1.0 : 0.0 },
+                splitX: { value: this.split.x },
             },
             vertexShader: dssTileVertex,
             fragmentShader: dssTileFragment,

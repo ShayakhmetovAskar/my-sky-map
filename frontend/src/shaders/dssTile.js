@@ -24,6 +24,9 @@ export const fragmentShader = `
     uniform vec2 userRepeat;
     uniform float userOpacity;
     uniform float hasUser;
+    // PROTOTYPE APO-85: compare slider — right of splitX (device px) the photo is hidden
+    uniform float splitEnabled;
+    uniform float splitX;
     varying vec2 vUv;
 
     void main() {
@@ -46,7 +49,9 @@ export const fragmentShader = `
         // SPIKE APO-80: user photo over the (desaturated) DSS, straight alpha
         if (hasUser > 0.5) {
             vec4 usr = texture2D(userMap, vUv * userRepeat + userOffset);
-            color = mix(color, usr.rgb, usr.a * userOpacity);
+            float a = usr.a * userOpacity;
+            if (splitEnabled > 0.5 && gl_FragCoord.x > splitX) a = 0.0;
+            color = mix(color, usr.rgb, a);
         }
 
         gl_FragColor = vec4(color, tex.a);

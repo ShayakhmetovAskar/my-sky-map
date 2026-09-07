@@ -22,6 +22,37 @@
     @max-fps-changed="onMaxFpsChanged"
   />
 
+  <!-- PROTOTYPE APO-85: My Sky dock -->
+  <MySkyPanel v-if="!embedded && mySkyEnabled"
+    ref="mySkyPanelRef"
+    :images="mySkyImages"
+    :selected-id="mySkySelectedId"
+    :layer-on="mySkyLayerOn"
+    :outlines-on="mySkyOutlinesOn"
+    :compare-on="mySkyCompareOn"
+    :labels-on="mySkyLabelsOn"
+    :stars-on="mySkyStarsOn"
+    :hover-id="mySkyHoverId"
+    :hidden-ids="mySkyHiddenIds"
+    :opacity="mySkyOpacity"
+    @fly="onMySkyFly"
+    @hover="onMySkyHover"
+    @select="onMySkySelect"
+    @toggle-layer="onMySkyToggle"
+    @toggle-outlines="onMySkyOutlines"
+    @toggle-compare="onMySkyCompare"
+    @toggle-labels="onMySkyLabels"
+    @toggle-stars="onMySkyStars"
+    @toggle-visible="onMySkyToggleVisible"
+    @opacity="onMySkyOpacity"
+  />
+  <!-- PROTOTYPE APO-85: outline labels (DOM, projected each frame) -->
+  <div ref="mySkyLabelsRef" class="mysky-labels"></div>
+  <!-- PROTOTYPE APO-85: compare slider line -->
+  <div v-if="mySkyEnabled && mySkyCompareOn" class="compare-line" :style="{ left: mySkyCompareX + 'px' }" @pointerdown="onCompareDown" @wheel.prevent="onCompareWheel">
+    <div class="compare-handle"><span>my photo</span><span class="compare-sep">⇔</span><span>DSS</span></div>
+  </div>
+
   <!-- Bottom Bar: time + ground + tracking -->
   <TimeSelectorV2 v-if="!embedded" ref="timeSelectorRef"
     :ground="terrainOn"
@@ -82,6 +113,9 @@ import SideMenu from '@/components/SideMenu.vue';
 import DebugPanel from '@/components/DebugPanel.vue';
 import HealpixManager from '@/managers/HealpixManager';
 import OverlayManager from '@/managers/OverlayManager';
+import FootprintManager from '@/managers/FootprintManager';
+import { UserHipsCompositeLoader } from '@/utils/userHipsComposite';
+import MySkyPanel from '@/components/MySkyPanel.vue';
 import { getWorldUp, equatorial_to_cartesian, cartesian_to_equatorial, isPoleOnScreen, equatorialToHorizontal, getZenithRaDecFast, formatDMS, formatHMS, angularDistance } from '@/utils/algos';
 import debugSettings from '@/settings/debugSettings';
 
@@ -91,6 +125,7 @@ export default {
     TimeSelectorV2,
     SideMenu,
     DebugPanel,
+    MySkyPanel,
   },
   props: {
     taskId: {
@@ -132,6 +167,33 @@ export default {
     // Angular distance measurement
     const angDistPoint1 = ref(null); // { raDeg, decDeg }
     const angDistResult = ref('');
+
+    // PROTOTYPE APO-85: My Sky panel state
+    const mySkyEnabled = ref(false);
+    const mySkyImages = ref([]);
+    const mySkySelectedId = ref(null);
+    const mySkyLayerOn = ref(true);
+    const mySkyOutlinesOn = ref(localStorage.getItem('mySkyOutlines') === '1');
+    const mySkyOpacity = ref(1);
+    const mySkyPanelRef = ref(null);
+    const mySkyLabelsRef = ref(null);
+    const mySkyHoverId = ref(null);        // image under the mouse on the sky
+    const mySkyCompareOn = ref(false);
+    const mySkyLabelsOn = ref(localStorage.getItem('mySkyLabels') !== '0');
+    const mySkyHiddenIds = ref(JSON.parse(localStorage.getItem('mySkyHidden') || '[]'));
+    const mySkyStarsOn = ref(localStorage.getItem('mySkyStars') !== '0');
+    const onMySkyStars = (v) => {
+      mySkyStarsOn.value = v;
+      localStorage.setItem('mySkyStars', v ? '1' : '0');
+      healpixManager?.setStarsVisible(v);
+    };
+    const mySkyVisible = () => mySkyImages.value.filter(im => !mySkyHiddenIds.value.includes(im.id));
+    const mySkyCompareX = ref(Math.round(320 + (window.innerWidth - 320) / 2));
+    let footprintManager = null;
+    let userLayer = null; // UserHipsCompositeLoader
+    let _compareDragging = false;
+    let _lastUrlState = '';
+    let _lastUrlWrite = 0;
 
     let sceneManager = null;
     let updateStarsInterval = null;
@@ -239,6 +301,87 @@ export default {
       }
     };
 
+    // PROTOTYPE APO-85: panel → scene
+    const onMySkyFly = (img) => {
+      if (!controlsManager || !img) return;
+      // the target may be below the horizon right now — the ground would hide it
+      if (terrainOn.value) onTerrainToggle();
+      controlsManager.flyTo(img.ra, img.dec, Math.max(0.05, img.fov * 1.3));
+    };
+    const onMySkySelect = (img) => {
+      mySkySelectedId.value = img ? img.id : null;
+      footprintManager?.setSelected(img || null);
+    };
+    const onMySkyHover = (img) => {
+      footprintManager?.setHover(img && img.id !== mySkySelectedId.value ? img : null);
+    };
+    const applyMySkyOpacity = () => {
+      healpixManager?.tileManager?.meshLoader?.setUserOpacity(mySkyLayerOn.value ? mySkyOpacity.value : 0);
+    };
+    const onMySkyToggle = (v) => { mySkyLayerOn.value = v; applyMySkyOpacity(); };
+
+    /** Image whose footprint contains (ra, dec); the smallest field wins when nested. */
+    const mySkyImageAt = (raDeg, decDeg) => mySkyVisible()
+      .map(im => ({ im, dist: angularDistance(im.ra, im.dec, raDeg, decDeg) }))
+      .filter(x => x.dist < x.im.fov / 2)
+      .sort((a, b) => a.im.fov - b.im.fov)[0]?.im || null;
+
+    const applyMySkySplit = () => {
+      healpixManager?.tileManager?.meshLoader?.setSplit(mySkyCompareOn.value, mySkyCompareX.value * window.devicePixelRatio);
+    };
+    const onMySkyCompare = (v) => { mySkyCompareOn.value = v; applyMySkySplit(); };
+    const onCompareDown = (e) => { _compareDragging = true; e.preventDefault(); };
+    const onCompareMove = (e) => {
+      if (!_compareDragging) return;
+      mySkyCompareX.value = Math.max(0, Math.min(window.innerWidth, e.clientX));
+      applyMySkySplit();
+    };
+    const onCompareUp = () => { _compareDragging = false; };
+    const onCompareWheel = (e) => { sceneManager?.renderer?.domElement?.dispatchEvent(new WheelEvent('wheel', e)); };
+
+    /** ?ra=&dec=&fov= mirrors the view; ?img=<id> flies to an image. Written with replaceState, no navigation. */
+    const syncUrlFromCamera = (now) => {
+      if (!controlsManager || now - _lastUrlWrite < 400) return;
+      const c = controlsManager.getCurrentCameraViewCoordinates();
+      if (!c) return;
+      const state = `${c.ra_deg.toFixed(4)},${c.dec_deg.toFixed(4)},${controlsManager.currentFov.toFixed(3)}`;
+      if (state === _lastUrlState) return;
+      _lastUrlState = state; _lastUrlWrite = now;
+      const params = new URLSearchParams(window.location.search);
+      params.set('ra', c.ra_deg.toFixed(4)); params.set('dec', c.dec_deg.toFixed(4)); params.set('fov', controlsManager.currentFov.toFixed(3));
+      params.delete('img');
+      history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+    };
+    const applyMySkyOutlines = () => {
+      footprintManager?.setAll(mySkyOutlinesOn.value ? mySkyVisible() : null);
+      footprintManager?.setLabels(mySkyLabelsOn.value ? mySkyVisible() : null);
+    };
+    const applyMySkyHidden = () => {
+      if (!userLayer) return;
+      userLayer.setEnabled(mySkyVisible().map(im => im.id));
+      healpixManager?.tileManager?.meshLoader?.refreshUserLayer();
+    };
+    const onMySkyToggleVisible = (img, currentlyHidden) => {
+      mySkyHiddenIds.value = currentlyHidden
+        ? mySkyHiddenIds.value.filter(id => id !== img.id)
+        : [...mySkyHiddenIds.value, img.id];
+      localStorage.setItem('mySkyHidden', JSON.stringify(mySkyHiddenIds.value));
+      if (!currentlyHidden && mySkySelectedId.value === img.id) onMySkySelect(null);
+      applyMySkyHidden();
+      applyMySkyOutlines();
+    };
+    const onMySkyLabels = (v) => {
+      mySkyLabelsOn.value = v;
+      localStorage.setItem('mySkyLabels', v ? '1' : '0');
+      applyMySkyOutlines();
+    };
+    const onMySkyOutlines = (v) => {
+      mySkyOutlinesOn.value = v;
+      localStorage.setItem('mySkyOutlines', v ? '1' : '0');
+      applyMySkyOutlines();
+    };
+    const onMySkyOpacity = (v) => { mySkyOpacity.value = v; applyMySkyOpacity(); };
+
     onMounted(() => {
       sceneManager = new SceneManager(threeContainer.value);
       sceneManager.rotateSky(observer.longitude, observer.latitude, new Date());
@@ -309,7 +452,20 @@ export default {
         cursorX.value = _lastClientX + 16;
         cursorY.value = _lastClientY + 16;
         cursorTooltipVisible.value = true;
+
+        // PROTOTYPE APO-85: photo under the cursor → highlight its row + outline, name in the tooltip
+        if (mySkyEnabled.value) {
+          const hit = mySkyImageAt(raDeg, decDeg);
+          const id = hit ? hit.id : null;
+          if (id !== mySkyHoverId.value) {
+            mySkyHoverId.value = id;
+            footprintManager?.setHover(hit && hit.id !== mySkySelectedId.value ? hit : null);
+          }
+        }
       };
+
+      let _downX = 0, _downY = 0;
+      canvas.addEventListener('mousedown', (e) => { _downX = e.clientX; _downY = e.clientY; });
 
       canvas.addEventListener('mousemove', (e) => {
         const rect = canvas.getBoundingClientRect();
@@ -331,6 +487,16 @@ export default {
         if (!e.shiftKey) {
           angDistPoint1.value = null;
           angDistResult.value = '';
+          // PROTOTYPE APO-85: a plain click (no drag) on a photo selects it in the panel
+          if (mySkyEnabled.value && Math.hypot(e.clientX - _downX, e.clientY - _downY) < 4) {
+            _raycaster.setFromCamera(_mouse, sceneManager.camera);
+            const d = _raycaster.ray.direction.clone().applyQuaternion(sceneManager.skyGroup.quaternion.clone().invert());
+            const [cra, cdec] = cartesian_to_equatorial(d.x, d.y, d.z);
+            const raDeg = cra * 180 / Math.PI, decDeg = cdec * 180 / Math.PI;
+            const hit = mySkyImageAt(raDeg, decDeg);
+            if (hit && hit.id === mySkySelectedId.value) onMySkyFly(hit); // second click flies
+            else onMySkySelect(hit);
+          }
           return;
         }
 
@@ -360,6 +526,39 @@ export default {
       // Инициализируем UIManager
       uiManager = new UIManager(hudRef.value);
       healpixManager = new HealpixManager(sceneManager.skyGroup, labelManager);
+
+      // PROTOTYPE APO-85: image outlines + list data (static json for the prototype)
+      footprintManager = new FootprintManager(sceneManager.skyGroup);
+      footprintManager.setLabelContainer(mySkyLabelsRef.value, (img) => { onMySkySelect(img); onMySkyFly(img); }, sceneManager.renderer.domElement);
+      window.addEventListener('pointermove', onCompareMove);
+      window.addEventListener('pointerup', onCompareUp);
+
+      // deep link: ?ra=&dec=&fov=
+      const q = new URLSearchParams(window.location.search);
+      if (q.has('ra') && q.has('dec') && q.has('fov')) {
+        const [ra, dec, fov] = [Number(q.get('ra')), Number(q.get('dec')), Number(q.get('fov'))];
+        setTimeout(() => {
+          const p = controlsManager._skyDirection(ra, dec);
+          controlsManager.camera.position.set(-p.x, -p.y, -p.z);
+          controlsManager.setFov(fov);
+          groundManager.setVisible(false);
+        }, 1500);
+      }
+      if (new URLSearchParams(window.location.search).has('mysky')) {
+        fetch('/spike/mysky.json')
+          .then(r => r.json())
+          .then(({ images }) => {
+            mySkyImages.value = images; mySkyEnabled.value = true;
+            userLayer = new UserHipsCompositeLoader(images);
+            healpixManager.setUserLayer(userLayer, userLayer.maxOrder);
+            applyMySkyOutlines(); applyMySkyHidden(); applyMySkyOpacity(); applyMySkySplit();
+            healpixManager.setStarsVisible(mySkyStarsOn.value);
+            const wanted = new URLSearchParams(window.location.search).get('img');
+            const target = wanted && images.find(im => im.id === wanted || im.id.startsWith(wanted));
+            if (target) setTimeout(() => { onMySkySelect(target); onMySkyFly(target); }, 800);
+          })
+          .catch(e => console.warn('[proto] mysky.json failed', e));
+      }
       groundManager = new GroundManager(sceneManager.scene);
       overlayManager = new OverlayManager(sceneManager.skyGroup, controlsManager);
 
@@ -461,6 +660,9 @@ export default {
         }
 
         healpixManager.setOrder(sceneManager.camera);
+        // PROTOTYPE APO-85
+        footprintManager?.update(sceneManager.camera, window.innerWidth, window.innerHeight);
+        if (mySkyEnabled.value) syncUrlFromCamera(performance.now());
       });
 
 
@@ -513,6 +715,10 @@ export default {
     });
 
     onBeforeUnmount(() => {
+      footprintManager?.dispose();
+      userLayer?.dispose();
+      window.removeEventListener('pointermove', onCompareMove);
+      window.removeEventListener('pointerup', onCompareUp);
       if (sceneManager) {
         //sceneManager.dispose();
         sceneManager = null;
@@ -578,6 +784,33 @@ export default {
       cursorY,
       cursorCoords,
       angDistResult,
+      // PROTOTYPE APO-85
+      mySkyEnabled,
+      mySkyImages,
+      mySkySelectedId,
+      mySkyLayerOn,
+      mySkyOutlinesOn,
+      mySkyOpacity,
+      mySkyPanelRef,
+      mySkyLabelsRef,
+      mySkyHoverId,
+      mySkyCompareOn,
+      mySkyLabelsOn,
+      onMySkyLabels,
+      mySkyHiddenIds,
+      onMySkyToggleVisible,
+      mySkyStarsOn,
+      onMySkyStars,
+      mySkyCompareX,
+      onMySkyCompare,
+      onCompareDown,
+      onCompareWheel,
+      onMySkyFly,
+      onMySkyHover,
+      onMySkySelect,
+      onMySkyToggle,
+      onMySkyOutlines,
+      onMySkyOpacity,
     };
   }
 };
@@ -750,6 +983,34 @@ export default {
 .grid-labels :deep(.grid-label-left) {
   transform: translateY(-50%);
 }
+
+/* PROTOTYPE APO-85 */
+.mysky-labels { position: fixed; inset: 0; pointer-events: none; z-index: 90; }
+.mysky-labels :deep(.mysky-label),
+.mysky-labels .mysky-label {
+  position: absolute; left: 0; top: 0;
+  pointer-events: auto; cursor: pointer;
+  transform-origin: 0 0;
+  padding: 2px 7px; border-radius: 6px;
+  font: 500 11px system-ui, -apple-system, sans-serif; letter-spacing: 0.02em;
+  color: #eafff4; background: rgba(66, 185, 131, 0.28); border: 1px solid rgba(66, 185, 131, 0.7);
+  white-space: nowrap; user-select: none;
+}
+.mysky-labels .mysky-label:hover { background: rgba(66, 185, 131, 0.6); }
+.compare-line {
+  position: fixed; top: 0; bottom: 0; width: 2px; margin-left: -1px;
+  background: rgba(255, 255, 255, 0.85); box-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+  cursor: ew-resize; z-index: 95; touch-action: none;
+}
+.compare-line::before { content: ''; position: absolute; top: 0; bottom: 0; left: -8px; right: -8px; }
+.compare-handle {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  display: flex; gap: 8px; align-items: center;
+  padding: 6px 12px; border-radius: 999px;
+  background: rgba(14, 16, 21, 0.9); border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #d7dde5; font: 500 11px system-ui, sans-serif; white-space: nowrap; user-select: none;
+}
+.compare-sep { color: #42b983; font-size: 14px; }
 
 .cursor-tooltip {
   position: fixed;

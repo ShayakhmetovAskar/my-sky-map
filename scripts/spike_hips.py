@@ -154,7 +154,7 @@ def footprint(wcs, w, h):
     return float(c_ra), float(c_dec), float(np.degrees(sep.max()))
 
 
-def cut_tile(wcs, img, nside, pix, ra_offset_pi):
+def cut_tile(wcs, img, nside, pix, ra_offset_pi, edge_ramp_px=1.0):
     """Return RGBA uint8 tile or None if the tile does not touch the image."""
     h, w, _ = img.shape
     ra, dec = tile_lattice_sky(nside, pix, GRID, ra_offset_pi)
@@ -185,7 +185,13 @@ def cut_tile(wcs, img, nside, pix, ra_offset_pi):
     for ch in range(3):
         v = map_coordinates(img[:, :, ch], [py_f, px_f], order=1, mode="constant", cval=0.0)
         tile[:, :, ch] = np.clip(v, 0, 255).astype(np.uint8)
-    tile[:, :, 3] = np.where(inside, 255, 0).astype(np.uint8)
+    # Anti-aliased edge: alpha ramps over ~one TILE pixel (measured in image pixels),
+    # otherwise the image border is a staircase wherever a tile pixel spans several
+    # image pixels (every order below kmax).
+    dist = np.minimum(np.minimum(px_f, w - 1 - px_f), np.minimum(py_f, h - 1 - py_f))
+    ramp = max(1.0, edge_ramp_px)
+    alpha = np.clip(dist / ramp, 0.0, 1.0)
+    tile[:, :, 3] = np.where(inside, np.round(alpha * 255), 0).astype(np.uint8)
     return tile
 
 
@@ -225,8 +231,10 @@ def main():
         d = out / f"Norder{k}"
         d.mkdir(parents=True, exist_ok=True)
         written = []
+        # image pixels per tile pixel at this order -> width of the alpha ramp
+        edge_ramp_px = (ARCSEC_ORDER0 / 2 ** k) / pixscale
         for pix in sorted(int(p) for p in cand):
-            tile = cut_tile(wcs, img, nside, pix, ra_pi)
+            tile = cut_tile(wcs, img, nside, pix, ra_pi, edge_ramp_px)
             if tile is None:
                 continue
             f = d / f"Npix{pix}.png"

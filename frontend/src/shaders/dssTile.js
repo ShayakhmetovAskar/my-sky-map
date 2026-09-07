@@ -18,13 +18,14 @@ export const fragmentShader = `
     uniform sampler2D map;
     uniform vec2 mapOffset;
     uniform vec2 mapRepeat;
-    // SPIKE APO-80: user HiPS layer drawn on the same tile mesh
+    // My Sky layer: the user's photos are drawn on the same tile mesh as the DSS,
+    // so the layer costs no extra draw calls.
     uniform sampler2D userMap;
     uniform vec2 userOffset;
     uniform vec2 userRepeat;
     uniform float userOpacity;
     uniform float hasUser;
-    // PROTOTYPE APO-85: compare slider — right of splitX (device px) the photo is hidden
+    // Compare slider: right of splitX (device px) the photo is hidden, DSS shows through
     uniform float splitEnabled;
     uniform float splitX;
     varying vec2 vUv;
@@ -46,7 +47,7 @@ export const fragmentShader = `
         vec3 gray = vec3(lum);
         vec3 color = mix(gray, tex.rgb, saturation);
 
-        // SPIKE APO-80: user photo over the (desaturated) DSS, straight alpha
+        // User photo over the (desaturated) DSS, straight (non-premultiplied) alpha
         if (hasUser > 0.5) {
             vec4 usr = texture2D(userMap, vUv * userRepeat + userOffset);
             float a = usr.a * userOpacity;

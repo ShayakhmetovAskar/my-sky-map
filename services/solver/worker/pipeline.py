@@ -16,7 +16,7 @@ from app.config import settings
 from app.services.hips_storage import HipsStorage
 from app.services.storage import StorageService
 from clients.astrometry_net import AstrometryNetClient
-from worker.hips import build_hips, new_image_secret, redact_secrets
+from worker.hips import build_hips, image_corners, image_size, load_wcs, new_image_secret, redact_secrets
 from worker.mesh import get_mesh
 from worker.solvers.astrometry_online import AstrometryOnlineSolver
 from worker.solvers.base import BaseSolver
@@ -63,13 +63,22 @@ class Pipeline:
             solve_result = await self.solver.solve(image_path, options)
             mesh_data = self._generate_mesh(image_path, solve_result.wcs_path)
             result = self._upload_results(output_prefix, solve_result, mesh_data, work_dir)
+            result.update(self._frame_geometry(image_path, solve_result.wcs_path))
             result["original_image_key"] = object_key
             logger.info("Task %s solved: ra=%.4f, dec=%.4f", task_id, result["center_ra"], result["center_dec"])
 
             if self.hips_storage is not None:
+                # The secret is minted here, before the first upload, and handed to the
+                # caller as `hips_pending` so it is committed with the solve result. A
+                # delete or an account erasure that lands mid-tiling can then find the
+                # prefix; a crash leaves it recoverable instead of orphaned forever.
+                secret = new_image_secret()
                 if on_solved is not None:
-                    await on_solved(dict(result))
-                result.update(await self._build_hips(image_path, solve_result.wcs_path))
+                    pending = f"{self.hips_storage.public_base_url.rstrip('/')}/img/{secret}"
+                    await on_solved({**result, "hips_pending": pending})
+                # `hips_pending` is deliberately not in the dict below: the final write
+                # replaces the whole result, so the key disappears once tiling is over.
+                result.update(await self._build_hips(image_path, solve_result.wcs_path, secret))
 
             logger.info("Task %s completed", task_id)
             return result
@@ -127,15 +136,41 @@ class Pipeline:
 
         return result
 
-    async def _build_hips(self, image_path: Path, wcs_path: Optional[Path]) -> dict:
+    @staticmethod
+    def _frame_geometry(image_path: Path, wcs_path: Optional[Path]) -> dict:
+        """``corners`` + ``width``/``height`` of the frame, computed in the solve half.
+
+        The UI draws the outline of an image that is still ``tiling`` (design §7) and the
+        layer payload carries its dimensions, but ``build_hips`` only returns those when
+        the whole pyramid is done — so they are derived here, from the WCS that is already
+        on disk, and published with the solve result. ``build_hips`` recomputes the same
+        values and simply overwrites them.
+
+        Never raises: this is metadata, and losing it must not fail a solve.
+        """
+        if not wcs_path or not wcs_path.exists():
+            return {}
+        try:
+            width, height = image_size(image_path)
+            return {
+                "corners": image_corners(load_wcs(wcs_path), width, height),
+                "width": width,
+                "height": height,
+            }
+        except Exception as e:
+            logger.warning("Frame geometry unavailable: %s", e)
+            return {}
+
+    async def _build_hips(self, image_path: Path, wcs_path: Optional[Path], secret: str) -> dict:
         """Tiling step (APO-83). Never raises: a failed sky layer must not fail the solve.
 
         Returns ``{"hips": ..., "corners": ...}`` on success, ``{"hips_error": msg}`` otherwise.
         The tiler is CPU-bound numpy, so it runs in a thread and keeps the event loop free.
-        The secret is minted here so a half-written pyramid can be cleaned up; error
-        messages are redacted because a storage error quotes the key it failed on.
+        ``secret`` comes from :meth:`process`, which has already published it as
+        ``hips_pending``, so a half-written pyramid is reachable from the database as well
+        as from the cleanup below. Error messages are redacted because a storage error
+        quotes the key it failed on.
         """
-        secret = new_image_secret()
         try:
             if not wcs_path or not wcs_path.exists():
                 raise FileNotFoundError("solver returned no WCS file")
@@ -155,8 +190,10 @@ class Pipeline:
     async def _discard_partial_hips(self, secret: str) -> None:
         """Best-effort removal of the tiles a failed run already uploaded.
 
-        Nothing references them (the secret is dropped with the error), so they would
-        sit in the public bucket forever.
+        The final write replaces `hips_pending` with `hips_error`, so once the failure is
+        committed nothing references them and they would sit in the public bucket forever.
+        A crash before that write is covered by `_recover_zombie_tasks`, which reads the
+        prefix back out of `hips_pending`.
         """
         try:
             removed = await asyncio.to_thread(self.hips_storage.delete_prefix, f"img/{secret}")

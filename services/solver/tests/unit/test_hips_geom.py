@@ -14,7 +14,6 @@ from worker.hips_geom import (
     CELL_DEG_ORDER0,
     CONE_PAD_FACTOR,
     angular_separation,
-    cone_candidates,
     cone_candidates_by_order,
     kmax_for_pixscale,
     nest2xyf,
@@ -43,6 +42,16 @@ JS_REFERENCE = [
     (8, 733321, 0.2, 0.8, 5.447079945284456, -1.1224424892547482),
     (8, 0, 0.0, 0.0, 7.071651432152805, 0.0026041696101148926),
 ]
+
+
+def cone_candidates(order, ra_deg, dec_deg, radius_deg, pad_factor=CONE_PAD_FACTOR):
+    """Candidates at one order — the last step of `cone_candidates_by_order`.
+
+    A test helper, not production code: `worker.hips` walks every order on its way
+    down, so the tiler has no use for a single-order shortcut.
+    """
+    *_, (_, cand) = cone_candidates_by_order(order, ra_deg, dec_deg, radius_deg, pad_factor)
+    return cand
 
 
 def _wrap(a):

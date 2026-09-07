@@ -6,9 +6,11 @@ authenticated owner (`user_id` filter + 404), and any owner request extends
 `expires_at` of the owner's guest collections.
 """
 
+import hashlib
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
+from typing import Optional, Sequence
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
@@ -40,6 +42,12 @@ GUEST_SHARE_TTL = timedelta(days=30)
 # 128 bits is the same class of unguessability as a presigned URL (design §5), so the
 # partial unique index on `share_token` is a safety net, not a collision strategy.
 SHARE_TOKEN_BYTES = 16
+
+
+def _user_lock_key(user_id: str) -> int:
+    """Stable signed 64-bit advisory-lock key for one user."""
+    return int.from_bytes(hashlib.blake2b(user_id.encode(), digest_size=8).digest(),
+                          "big", signed=True)
 
 
 async def extend_guest_expiry(
@@ -119,6 +127,13 @@ async def create_collection(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # The cap has to be arbitrated by the database, not by this process: two concurrent
+    # POSTs would both read 49 and both insert. A transaction-scoped advisory lock on the
+    # user serializes them — Postgres cannot do it with `FOR UPDATE`, since the row that
+    # would have to be locked is the one not inserted yet. Released by the commit or the
+    # rollback below, either way.
+    await db.execute(select(func.pg_advisory_xact_lock(_user_lock_key(user_id))))
+
     count = (
         await db.execute(select(func.count(Collection.id)).where(Collection.user_id == user_id))
     ).scalar_one()
@@ -139,16 +154,32 @@ async def create_collection(
 async def update_collection(
     collection_id: UUID,
     body: UpdateCollectionRequest,
+    background: BackgroundTasks,
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    hips_storage: HipsStorage = Depends(get_hips_storage),
 ):
+    """Rename a collection and/or replace its item list.
+
+    Dropping an image from a *shared* collection is a revocation as much as
+    `DELETE /share` is: the manifest stops listing it, but the `img/{secret}/…` tile
+    URLs a viewer already holds keep resolving until the secret rotates. So the images
+    this PATCH removed — and that no other shared collection still publishes — are
+    rotated in the background, exactly as unsharing does (design §7).
+    """
     collection = await _get_owned_collection(db, collection_id, user_id)
+    was_shared = collection.share_token is not None
+    removed: list[UUID] = []
 
     if body.title is not None:
         collection.title = body.title
 
     if body.items is not None:
         await _check_task_ids(db, body.items, user_id)
+        if was_shared:
+            # Read before the rows go: after the replace there is nothing left to diff.
+            kept = set(body.items)
+            removed = [item.task_id for item in collection.items if item.task_id not in kept]
         # Replace the whole list with Core statements: the ORM would emit INSERTs before
         # DELETEs within one flush and trip over the (collection_id, task_id) PK on reorder.
         await db.execute(delete(CollectionItem).where(CollectionItem.collection_id == collection.id))
@@ -165,6 +196,10 @@ async def update_collection(
         collection.updated_at = datetime.now(timezone.utc)
         await db.commit()
 
+    # After the commit, like `unshare_collection`: "some other collection still shares
+    # this image" is then read off committed state instead of being reconstructed.
+    await _schedule_rotation(db, collection_id, user_id, removed, background, hips_storage)
+
     # Re-read so `items` reflects the rows just written, in position order
     return (
         await db.execute(_owned_collection_query(collection_id, user_id).execution_options(populate_existing=True))
@@ -174,12 +209,32 @@ async def update_collection(
 @router.delete("/{collection_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_collection(
     collection_id: UUID,
+    background: BackgroundTasks,
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    hips_storage: HipsStorage = Depends(get_hips_storage),
 ):
+    """Delete a collection. Deleting a shared one revokes its link — and its tile URLs.
+
+    From the owner's side this and `DELETE /share` are the same act, so they must have
+    the same consequence: the manifest dies with the row, but a tile URL taken from it
+    needs no auth and the public bucket has no expiry, so it would serve the whole
+    pyramid forever unless the image is re-addressed under a fresh secret (design §5).
+    Images another shared collection still publishes are left alone.
+    """
     collection = await _get_owned_collection(db, collection_id, user_id)
+    # Computed while the rows are still there; `_shared_by_another_collection` already
+    # excludes this collection, so deleting it cannot change the answer.
+    to_revoke = (
+        await _images_to_revoke(db, collection_id, user_id)
+        if collection.share_token is not None else []
+    )
+
     await db.delete(collection)  # collection_items go with it (ON DELETE CASCADE)
     await db.commit()
+
+    if to_revoke:
+        background.add_task(rotate_image_secrets, to_revoke, hips_storage=hips_storage)
 
 
 # --- Sharing (APO-88, design §4–5) ---
@@ -243,26 +298,55 @@ def _shared_by_another_collection(collection_id: UUID):
     )
 
 
-async def _images_to_revoke(db: AsyncSession, collection_id: UUID, user_id: str) -> list[UUID]:
-    """Tiled images of this collection that no other shared collection exposes.
+async def _images_to_revoke(
+    db: AsyncSession,
+    collection_id: UUID,
+    user_id: str,
+    task_ids: Optional[Sequence[UUID]] = None,
+) -> list[UUID]:
+    """Tiled images that no *other* shared collection exposes.
+
+    Without `task_ids`, every image this collection carries — the whole link is going
+    away (`DELETE /share`, `DELETE /{id}`).  With `task_ids`, only those, looked up
+    directly rather than through `collection_items`: `PATCH {items: [...]}` has already
+    replaced the item rows by the time this runs, so the join would find nothing.
 
     Only tasks that actually carry `result.hips` are returned: rotation of an untiled
     image is a no-op, and this keeps a 200-image collection from queueing 200 sessions
     that each find nothing to do.
     """
-    query = (
-        select(Task.id)
-        .join(CollectionItem, CollectionItem.task_id == Task.id)
-        .where(
-            CollectionItem.collection_id == collection_id,
-            # Ownership is re-stated here as it is in `/public/sky`: a stray item must not
-            # let one user rotate — i.e. break the live tile URLs of — another user's image.
-            Task.user_id == user_id,
-            cast(Task.result, JSONB).has_key("hips"),
-            ~_shared_by_another_collection(collection_id),
-        )
+    if task_ids is not None and not task_ids:
+        return []
+    query = select(Task.id).where(
+        # Ownership is re-stated here as it is in `/public/sky`: a stray item must not
+        # let one user rotate — i.e. break the live tile URLs of — another user's image.
+        Task.user_id == user_id,
+        cast(Task.result, JSONB).has_key("hips"),
+        ~_shared_by_another_collection(collection_id),
     )
+    if task_ids is None:
+        query = query.join(CollectionItem, CollectionItem.task_id == Task.id).where(
+            CollectionItem.collection_id == collection_id
+        )
+    else:
+        query = query.where(Task.id.in_(list(task_ids)))
     return list((await db.execute(query)).scalars().all())
+
+
+async def _schedule_rotation(
+    db: AsyncSession,
+    collection_id: UUID,
+    user_id: str,
+    task_ids: Sequence[UUID],
+    background: BackgroundTasks,
+    hips_storage: HipsStorage,
+) -> None:
+    """Queue a secret rotation for the images `task_ids` just stopped being shared."""
+    if not task_ids:
+        return
+    to_revoke = await _images_to_revoke(db, collection_id, user_id, task_ids=task_ids)
+    if to_revoke:
+        background.add_task(rotate_image_secrets, to_revoke, hips_storage=hips_storage)
 
 
 @router.delete("/{collection_id}/share", status_code=status.HTTP_204_NO_CONTENT)

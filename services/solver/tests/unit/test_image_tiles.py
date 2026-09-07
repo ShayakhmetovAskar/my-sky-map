@@ -19,10 +19,12 @@ from app.models.db import Submission, Task
 from app.services.hips_storage import HipsStorageError
 from app.services.image_tiles import (
     hips_base,
+    hips_pending_base,
     new_image_secret,
     redact_secrets,
     rotate_image_secret,
     submission_prefix,
+    tile_bases,
     tile_prefix,
 )
 
@@ -56,6 +58,23 @@ class TestPureHelpers:
         assert hips_base({"hips": {"kmax": 6}}) is None
         assert hips_base({"hips": "nonsense"}) is None
         assert hips_base(None) is None
+
+    def test_hips_pending_base_is_the_prefix_a_tiling_task_is_writing(self):
+        pending = f"{PUBLIC}/img/PendingSecret12345678"
+        assert hips_pending_base({"hips_pending": pending}) == pending
+        assert hips_pending_base({"hips": {"base": BASE}}) is None
+        assert hips_pending_base({"hips_pending": 42}) is None
+        assert hips_pending_base(None) is None
+
+    def test_tile_bases_covers_the_finished_and_the_in_flight_pyramid(self):
+        """A purge that only looked at `hips.base` would miss a task mid-tiling."""
+        pending = f"{PUBLIC}/img/PendingSecret12345678"
+        assert tile_bases({"hips": {"base": BASE}}) == [BASE]
+        assert tile_bases({"hips_pending": pending}) == [pending]
+        # a re-solve can carry both: the old pyramid and the one being written
+        assert tile_bases({"hips": {"base": BASE}, "hips_pending": pending}) == [BASE, pending]
+        assert tile_bases({"hips_error": "no WCS"}) == []
+        assert tile_bases(None) == []
 
     def test_submission_prefix_has_no_trailing_slash(self):
         sid = uuid4()

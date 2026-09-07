@@ -8,18 +8,22 @@ before it already happened:
    live capability URL stops resolving on the very next request.  It goes first
    so that a purge that dies half-way (S3 down, credentials rotated) still leaves
    every shared link dead rather than pointing at tiles that are still there.
-2. Purge the objects: the public ``img/{secret}/`` prefix of every image the user
-   ever had tiled, then the private ``users/{sub}/``.  Public first, again
-   because those need no auth to read.
-3. ``DELETE`` the rows — collections (CASCADE → ``collection_items``) and
+2. ``status = 'cancelled'`` on the user's queued and running tasks, committed on
+   its own, so the worker stops writing objects before the purge starts.  Without
+   it a task in flight re-creates its output right after the sweep, and a task in
+   ``tiling`` keeps filling a *public* prefix whose row is about to be deleted.
+3. Purge the objects: the public ``img/{secret}/`` prefix of every image the user
+   ever had tiled (finished and in flight alike), then the private ``users/{sub}/``.
+   Public first, again because those need no auth to read.
+4. ``DELETE`` the rows — collections (CASCADE → ``collection_items``) and
    submissions (CASCADE → ``tasks``) — in one transaction, *after* the objects
    are gone: ``tasks.result.hips.base`` holds the only record of where an image's
    tiles live, so committing first would strand them in a public bucket forever.
-4. ``astrometry_api_keys`` — the user's own credential at astrometry.net (APO-40).
-5. The identity itself at Zitadel.
+5. ``astrometry_api_keys`` — the user's own credential at astrometry.net (APO-40).
+6. The identity itself at Zitadel.
 
 Everything is idempotent: a second run finds no collections, lists empty
-prefixes, deletes no rows.  A failure in steps 2–4 raises, so the caller can
+prefixes, deletes no rows.  A failure in steps 3–5 raises, so the caller can
 retry (the API turns it into a 503); the row deletion has not happened yet, which
 is what makes that retry able to find the account again.
 
@@ -35,13 +39,13 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Iterable, List, Optional, Sequence, Tuple
 
-from sqlalchemy import String, bindparam, delete, select, text
+from sqlalchemy import String, bindparam, delete, select, text, update
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.db import Submission, Task
 from .hips_storage import HipsStorage
-from .image_tiles import hips_base, redact_secrets, tile_prefix
+from .image_tiles import redact_secrets, tile_bases, tile_prefix
 from .storage import StorageService
 
 logger = logging.getLogger(__name__)
@@ -64,6 +68,7 @@ class AccountDeletion:
 
     user_id: str
     share_tokens_revoked: int = 0
+    tasks_cancelled: int = 0
     tile_prefixes_purged: int = 0
     objects_removed: int = 0
     collections_deleted: int = 0
@@ -116,7 +121,7 @@ async def delete_account(
 ) -> AccountDeletion:
     """Erase one account: links, objects, rows, credentials, identity.
 
-    Raises whatever storage or the database raises in steps 2–4, having left the
+    Raises whatever storage or the database raises in steps 3–5, having left the
     rows intact so a retry can find them.  A failure of the last step (the
     identity provider) is recorded in the report instead of raised: by then the
     data is gone, and a batch caller must not treat that as "nothing happened".
@@ -129,14 +134,26 @@ async def delete_account(
     report.share_tokens_revoked = await _revoke_share_tokens(db, user_id)
     await db.commit()
 
-    # 2. Objects: public tiles of every image, then the private prefix.
+    # 1b. Get the worker out of the way before touching a single object. A task still
+    # running would re-create `users/{sub}/.../output/` right after the purge swept it,
+    # and a task in `tiling` would go on filling a *public* prefix. The worker re-checks
+    # the row before each write and stops when it finds it cancelled or gone.
+    report.tasks_cancelled = await _cancel_live_tasks(db, user_id)
+    await db.commit()
+
+    # 2. Objects: public tiles of every image, then the private prefix. The read
+    # transaction is committed away first — the purge below is one list + one delete per
+    # prefix, and an account with hundreds of images would otherwise hold a pooled
+    # connection `idle in transaction` for minutes and block autovacuum on `tasks`.
     prefixes = await _tile_prefixes(db, user_id)
+    await db.commit()
+
     report.tile_prefixes_purged = len(prefixes)
     for prefix in prefixes:
         report.objects_removed += await asyncio.to_thread(hips_storage.delete_prefix, prefix)
     report.objects_removed += await asyncio.to_thread(storage.delete_prefix, user_prefix(user_id))
 
-    # 3-4. Rows, in one transaction now that nothing points at live objects.
+    # 3-4. Rows, in a fresh transaction now that nothing points at live objects.
     report.collections_deleted = await _delete_collections(db, [user_id])
     report.submissions_deleted = (
         await db.execute(delete(Submission).where(Submission.user_id == user_id))
@@ -144,15 +161,16 @@ async def delete_account(
     report.api_keys_deleted = await _delete_api_keys(db, [user_id])
     await db.commit()
 
-    # 5. The identity, last: everything it owned is already gone.
+    # 5. The identity, last: everything it owned is already gone.  A client with no
+    # management API reports "skipped" — the router turns that into a 200 that says so.
     report.identity = await _delete_identity(user_id, zitadel)
 
     logger.info(
-        "Deleted account %s: %d share links revoked, %d objects under %d tile prefixes purged, "
-        "%d submissions, %d collections, %d api keys, identity=%s",
-        user_id, report.share_tokens_revoked, report.objects_removed, report.tile_prefixes_purged,
-        report.submissions_deleted, report.collections_deleted, report.api_keys_deleted,
-        report.identity,
+        "Deleted account %s: %d share links revoked, %d tasks cancelled, %d objects under "
+        "%d tile prefixes purged, %d submissions, %d collections, %d api keys, identity=%s",
+        user_id, report.share_tokens_revoked, report.tasks_cancelled, report.objects_removed,
+        report.tile_prefixes_purged, report.submissions_deleted, report.collections_deleted,
+        report.api_keys_deleted, report.identity,
     )
     return report
 
@@ -210,6 +228,23 @@ async def _revoke_share_tokens(db: AsyncSession, user_ids: Sequence[str] | str) 
     return result.rowcount or 0
 
 
+async def _cancel_live_tasks(db: AsyncSession, user_id: str) -> int:
+    """Take the user's queued and running tasks away from the worker. Returns rows hit.
+
+    `cancelled` is a terminal status the worker never picks up, and every write in
+    `worker.main` is conditional on the row still being `processing`/`tiling` — so a
+    task caught here stops at its next checkpoint instead of re-creating objects the
+    purge is about to sweep.
+    """
+    result = await db.execute(
+        update(Task)
+        .where(Task.user_id == user_id, Task.status.in_(("pending", "processing", "tiling")))
+        .values(status="cancelled")
+        .execution_options(synchronize_session=False)
+    )
+    return result.rowcount or 0
+
+
 async def _delete_collections(db: AsyncSession, user_ids: Sequence[str]) -> int:
     """`DELETE FROM collections WHERE user_id IN (…)`; `collection_items` go by CASCADE.
 
@@ -258,7 +293,10 @@ async def _table_exists(db: AsyncSession, table: str) -> bool:
 async def _tile_prefixes(db: AsyncSession, user_id: str) -> List[str]:
     """Every distinct `img/{secret}` prefix the user's images were tiled into.
 
-    Order is stable (first seen) so the purge is reproducible in logs and tests.
+    Both the finished pyramids (`result.hips.base`) and the one a task was still
+    uploading when it was cancelled above (`result.hips_pending`) — see
+    :func:`image_tiles.tile_bases`.  Order is stable (first seen) so the purge is
+    reproducible in logs and tests.
     """
     rows = (await db.execute(
         select(Task.result).where(Task.user_id == user_id).order_by(Task.created_at)
@@ -267,10 +305,11 @@ async def _tile_prefixes(db: AsyncSession, user_id: str) -> List[str]:
     prefixes: List[str] = []
     seen = set()
     for result in rows:
-        prefix = tile_prefix(hips_base(result))
-        if prefix and prefix not in seen:
-            seen.add(prefix)
-            prefixes.append(prefix)
+        for base in tile_bases(result):
+            prefix = tile_prefix(base)
+            if prefix and prefix not in seen:
+                seen.add(prefix)
+                prefixes.append(prefix)
     return prefixes
 
 

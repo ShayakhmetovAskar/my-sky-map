@@ -25,7 +25,9 @@ from worker.hips import (
     make_thumb,
     pixel_scale_arcsec,
 )
-from worker.hips_geom import TILE, cone_candidates, kmax_for_pixscale, tile_uv_to_radec
+from worker.hips_geom import TILE, kmax_for_pixscale, tile_uv_to_radec
+
+from .test_hips_geom import cone_candidates       # single-order helper; see its docstring
 
 CENTER_RA, CENTER_DEC = 83.8, -5.4
 
@@ -247,6 +249,28 @@ class TestThumb:
             assert "exif" not in im.info and "icc_profile" not in im.info
 
 
+class TestImageSize:
+    """Dimensions from the header only — the solve half needs them, decoding does not."""
+
+    def test_reads_a_png_without_decoding_it(self, scene):
+        assert hips.image_size(scene["image_path"]) == (scene["w"], scene["h"])
+
+    def test_agrees_with_the_decoded_image(self, scene):
+        h, w = hips.load_image(scene["image_path"]).shape[:2]
+        assert hips.image_size(scene["image_path"]) == (w, h)
+
+    def test_reads_a_fits(self, tmp_path):
+        path = tmp_path / "frame.fits"
+        fits.PrimaryHDU(np.zeros((37, 91), dtype=np.float32)).writeto(str(path))
+        assert hips.image_size(path) == (91, 37)
+
+    def test_an_empty_fits_has_no_size(self, tmp_path):
+        path = tmp_path / "empty.fits"
+        fits.PrimaryHDU().writeto(str(path))
+        with pytest.raises(ValueError):
+            hips.image_size(path)
+
+
 class TestBuildHips:
     KEY_RE = re.compile(r"^img/(?P<secret>[A-Za-z0-9_-]{22})/(Norder(?P<k>\d+)/Npix(?P<p>\d+)\.png|thumb\.jpg)$")
 
@@ -260,6 +284,8 @@ class TestBuildHips:
         assert hips_res["kmax"] == kmax_for_pixscale(scene["pixscale"])
         assert len(corners) == 4
         assert hips_res["seconds"] >= 0
+        # `SkyImage.width`/`height` read these off the top level of `result`
+        assert (built["width"], built["height"]) == (scene["w"], scene["h"])
 
         secret = hips_res["base"].rsplit("/", 1)[1]
         assert re.fullmatch(r"[A-Za-z0-9_-]{22}", secret)

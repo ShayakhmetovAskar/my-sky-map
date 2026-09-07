@@ -68,7 +68,8 @@ class SkyImage(BaseModel):
     """One solved image of the sky layer.
 
     Tile metadata (`kmax`, `moc`, `base`, `thumb`) is present only for `ready` images;
-    `failed` images are never listed.
+    `failed` images are never listed.  `corners`, `width` and `height` come from the
+    solve, so a `tiling` image can already be outlined on the sky (design §7).
     """
 
     id: UUID
@@ -118,8 +119,10 @@ class SkyImage(BaseModel):
             moc=hips.get("moc"),
             base=base,
             thumb=hips.get("thumb") or (f"{base}/thumb.jpg" if base else None),
-            width=result.get("width", hips.get("width")),
-            height=result.get("height", hips.get("height")),
+            # Written by the solve half (`Pipeline._frame_geometry`), so a `tiling`
+            # image carries them too — there is no `hips` fallback to look in.
+            width=result.get("width"),
+            height=result.get("height"),
             status=status,
             **extra,
         )

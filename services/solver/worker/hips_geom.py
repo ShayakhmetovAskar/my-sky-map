@@ -199,10 +199,3 @@ def cone_candidates_by_order(kmax: int, ra_deg: float, dec_deg: float, radius_de
             pad = math.radians(CELL_DEG_ORDER0 / (1 << k) * pad_factor)
             cand = cand[angular_separation(cra, cdec, ra0, dec0) <= radius + pad]
         yield k, cand
-
-
-def cone_candidates(order: int, ra_deg: float, dec_deg: float, radius_deg: float,
-                    pad_factor: float = CONE_PAD_FACTOR) -> np.ndarray:
-    """Candidate cells at one order (see ``cone_candidates_by_order``)."""
-    *_, (_, cand) = cone_candidates_by_order(order, ra_deg, dec_deg, radius_deg, pad_factor)
-    return cand

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from datetime import datetime, timedelta, timezone
@@ -117,6 +118,22 @@ class TestCreateCollection:
         _as_user(OTHER_USER)
         resp = await client.post("/me/collections", json={"title": "mine"})
         assert resp.status_code == 201
+
+    async def test_concurrent_creates_cannot_slip_past_the_cap(self, client: AsyncClient):
+        """Count-then-insert is not a check: without a lock every racer reads 49.
+
+        The advisory lock in `create_collection` makes Postgres arbitrate, so exactly
+        one of four simultaneous requests gets the last slot.
+        """
+        for i in range(49):
+            await _create_collection(client, f"c{i}")
+
+        results = await asyncio.gather(*[
+            client.post("/me/collections", json={"title": f"race-{i}"}) for i in range(4)
+        ])
+
+        assert sorted(r.status_code for r in results) == [201, 422, 422, 422]
+        assert len((await client.get("/me/collections")).json()) == 50
 
 
 # --- List ---

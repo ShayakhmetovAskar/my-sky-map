@@ -85,6 +85,11 @@ class TestErrorFlows:
         resp = await client.get(f"/tasks/{task_id}")
         assert resp.status_code == 200
 
+        # A queued task still belongs to the worker: purging under it would strand the
+        # objects it is about to write (APO-87). Cancel it first, then the delete lands.
+        assert (await client.delete(f"/submissions/{sub_id}")).status_code == 409
+        assert (await client.post(f"/tasks/{task_id}/cancel")).status_code == 200
+
         resp = await client.delete(f"/submissions/{sub_id}")
         assert resp.status_code == 204
 

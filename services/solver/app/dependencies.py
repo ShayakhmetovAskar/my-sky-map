@@ -64,6 +64,17 @@ async def get_current_user(
         )
 
 
+# APO-40 MERGE BLOCKER: `get_is_guest` below is a stub. Guest auth must teach it about
+# the shadow org before it ships, or every guest share becomes a permanent link owned by
+# an account whose only claim is a refresh token in localStorage — the "ссылки-призраки"
+# scenario `expires_at` exists to prevent (docs/my-sky-collections-sharing.md §5).
+logger.warning(
+    "APO-40 MERGE BLOCKER: guest detection is not wired (dependencies.get_is_guest is a "
+    "stub returning False) — collection shares never expire. See docs/my-sky-collections-"
+    "sharing.md §5."
+)
+
+
 async def get_is_guest(user_id: str = Depends(get_current_user)) -> bool:
     """Whether the caller is a guest (shadow) account.
 
@@ -71,9 +82,16 @@ async def get_is_guest(user_id: str = Depends(get_current_user)) -> bool:
     anything they share has to expire on its own (design §5) — `POST /me/collections/{id}/share`
     stamps `expires_at` when this is true.
 
-    Guest auth (APO-40) has not landed on this branch and nothing distinguishes a shadow
-    account from a real one yet, so today this is False for everyone: shares simply never
-    expire. This function is the single place APO-40 has to teach about its shadow org.
+    APO-40 MERGE BLOCKER — this is a stub. Guest auth has not landed on this branch and
+    nothing distinguishes a shadow account from a real one yet, so today it is False for
+    everyone and `extend_guest_expiry` is a permanent no-op: shares never expire. The
+    tests that cover the expiry path (`test_public_sky.py::test_guest_share_expires_in_30_days`)
+    pass by overriding this dependency, so they will keep passing against the stub —
+    hence the warning logged at import above, which is the only thing that fails loudly.
+
+    APO-40 has to replace the body with the shadow-org claim (the org id from
+    `docs/guest-auth-setup.md`, or a `settings.guest_sub_prefix` check) and drop that
+    warning. This is the single place it has to touch.
     """
     return False
 

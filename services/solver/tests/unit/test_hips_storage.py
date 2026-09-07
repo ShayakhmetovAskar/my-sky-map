@@ -40,12 +40,6 @@ class TestUpload:
         storage.upload_bytes("img/s/thumb.jpg", b"jpg", "image/jpeg", cache_control=None)
         assert client.put_object.call_args.kwargs["metadata"] is None
 
-    def test_public_url(self):
-        storage, _ = make_storage()
-        storage.public_base_url = "http://pub/skymap-static-data"
-        assert storage.public_url("img/s/thumb.jpg") == "http://pub/skymap-static-data/img/s/thumb.jpg"
-        assert storage.public_url("/img/s/thumb.jpg") == "http://pub/skymap-static-data/img/s/thumb.jpg"
-
 
 class TestPrefixOperations:
     def test_list_prefix_is_recursive_and_slash_terminated(self):

@@ -412,6 +412,103 @@ class TestRotationScope:
             assert bucket.get(tile_url(base)) == 404
 
 
+# --- The other two ways an owner revokes a link ---
+
+class TestDeleteCollectionRevokes:
+    """`DELETE /me/collections/{id}` is "revoke the link" too, and must kill the tiles."""
+
+    async def test_deleting_a_shared_collection_rotates_its_images(
+        self, client: AsyncClient, db_engine, bucket
+    ):
+        task_id, base = await seed_image(db_engine, bucket, secret="DeletedMMMMMMMMMMM")
+        collection_id = await make_collection(client, [task_id])
+        await share(client, collection_id)
+        assert bucket.get(tile_url(base)) == 200
+
+        assert (await client.delete(f"/me/collections/{collection_id}")).status_code == 204
+
+        assert bucket.rotations() == {tile_prefix(base)}
+        assert bucket.get(tile_url(base)) == 404, "a copied tile URL outlived the collection"
+        new_base = await stored_base(db_engine, task_id)
+        assert new_base != base and bucket.get(tile_url(new_base)) == 200
+
+    async def test_an_image_another_link_still_serves_is_left_alone(
+        self, client: AsyncClient, db_engine, bucket
+    ):
+        shared_id, shared_base = await seed_image(db_engine, bucket, secret="KeptOnDeleteAAAAAA")
+        lonely_id, lonely_base = await seed_image(db_engine, bucket, secret="GoneOnDeleteBBBBBB")
+        doomed = await make_collection(client, [shared_id, lonely_id], title="Doomed")
+        keeper = await make_collection(client, [shared_id], title="Keeper")
+        await share(client, keeper)
+        await share(client, doomed)
+
+        assert (await client.delete(f"/me/collections/{doomed}")).status_code == 204
+
+        assert bucket.rotations() == {tile_prefix(lonely_base)}
+        assert await stored_base(db_engine, shared_id) == shared_base
+        assert bucket.get(tile_url(shared_base)) == 200
+
+
+class TestRemovingAnItemRevokes:
+    """`PATCH {items: [...]}` that drops an image from a shared collection revokes it."""
+
+    async def test_removed_image_is_rotated(self, client: AsyncClient, db_engine, bucket):
+        dropped_id, dropped_base = await seed_image(db_engine, bucket, secret="DroppedCCCCCCCCCCC")
+        kept_id, kept_base = await seed_image(db_engine, bucket, secret="KeptItemDDDDDDDDDD")
+        collection_id = await make_collection(client, [dropped_id, kept_id])
+        await share(client, collection_id)
+
+        resp = await client.patch(f"/me/collections/{collection_id}", json={"items": [kept_id]})
+        assert resp.status_code == 200, resp.text
+
+        assert bucket.rotations() == {tile_prefix(dropped_base)}
+        assert bucket.get(tile_url(dropped_base)) == 404
+        # the image the link still publishes must keep the URLs its viewers are using
+        assert await stored_base(db_engine, kept_id) == kept_base
+        assert bucket.get(tile_url(kept_base)) == 200
+
+    async def test_a_removed_image_shared_elsewhere_is_left_alone(
+        self, client: AsyncClient, db_engine, bucket
+    ):
+        task_id, base = await seed_image(db_engine, bucket, secret="RemovedButSharedEEE")
+        collection_id = await make_collection(client, [task_id], title="Edited")
+        keeper = await make_collection(client, [task_id], title="Keeper")
+        await share(client, keeper)
+        await share(client, collection_id)
+
+        await client.patch(f"/me/collections/{collection_id}", json={"items": []})
+
+        assert bucket.copied == []
+        assert await stored_base(db_engine, task_id) == base
+
+    async def test_editing_a_private_collection_rotates_nothing(
+        self, client: AsyncClient, db_engine, bucket
+    ):
+        """No link was handed out, so removing an item revokes nothing."""
+        task_id, base = await seed_image(db_engine, bucket, secret="PrivateEditFFFFFFF")
+        collection_id = await make_collection(client, [task_id])
+
+        await client.patch(f"/me/collections/{collection_id}", json={"items": []})
+
+        assert bucket.copied == []
+        assert await stored_base(db_engine, task_id) == base
+
+    async def test_reordering_and_adding_rotate_nothing(
+        self, client: AsyncClient, db_engine, bucket
+    ):
+        """Only *removal* revokes: the same images under a new order are still published."""
+        first, first_base = await seed_image(db_engine, bucket, secret="ReorderOneGGGGGGGG")
+        second, second_base = await seed_image(db_engine, bucket, secret="ReorderTwoHHHHHHHH")
+        collection_id = await make_collection(client, [first])
+        await share(client, collection_id)
+
+        await client.patch(f"/me/collections/{collection_id}", json={"items": [second, first]})
+
+        assert bucket.copied == []
+        assert await stored_base(db_engine, first) == first_base
+        assert await stored_base(db_engine, second) == second_base
+
+
 # --- When nothing should happen ---
 
 class TestNoRotation:
@@ -460,23 +557,18 @@ class TestNoRotation:
         assert bucket.get(tile_url(base)) == 200
         assert (await client.get(f"/public/sky/{token}")).status_code == 200
 
-    async def test_deleting_the_collection_outright_does_not_rotate(
+    async def test_deleting_a_never_shared_collection_rotates_nothing(
         self, client: AsyncClient, db_engine, bucket
     ):
-        """Pinning the boundary this ticket draws, not endorsing it.
-
-        Deleting a shared collection revokes the link the same way unsharing does, and
-        leaves the same tile URLs live — but the design scopes rotation to `DELETE /share`
-        and APO-86 owns this endpoint, so it stays as it was. Flagged for integration.
-        """
-        task_id, base = await seed_image(db_engine, bucket, secret="DeletedMMMMMMMMMMM")
+        """No link was ever handed out, so no tile URL needs to die."""
+        task_id, base = await seed_image(db_engine, bucket, secret="DeletedPrivateMMMMM")
         collection_id = await make_collection(client, [task_id])
-        await share(client, collection_id)
 
         assert (await client.delete(f"/me/collections/{collection_id}")).status_code == 204
 
         assert bucket.copied == []
         assert await stored_base(db_engine, task_id) == base
+        assert bucket.get(tile_url(base)) == 200
 
 
 # --- The unshare response neither waits on, nor fails with, the bucket ---

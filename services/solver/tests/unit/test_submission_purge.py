@@ -51,12 +51,17 @@ async def _tiled_task(factory, submission_id: str, base: str | None) -> UUID:
     task_id = uuid4()
     result = ({"hips": {"kmax": 6, "tiles": 42, "base": base, "thumb": f"{base}/thumb.jpg"}}
               if base else {"hips_error": "solver returned no WCS file"})
+    return await _task(factory, submission_id, "completed", result)
+
+
+async def _task(factory, submission_id: str, status: str, result=None) -> UUID:
+    task_id = uuid4()
     async with factory() as db:
         db.add(Task(
             id=task_id,
             submission_id=UUID(submission_id),
             user_id=TEST_USER,
-            status="completed",
+            status=status,
             result=result,
         ))
         await db.commit()
@@ -103,6 +108,26 @@ class TestPurgePrefixes:
         mock_hips_storage.delete_prefix.assert_not_called()
         mock_storage.delete_prefix.assert_called_once()
 
+    async def test_purges_the_prefix_a_cancelled_tiling_task_was_writing(
+        self, client, sessions, mock_hips_storage
+    ):
+        """`hips_pending` is on record before the first tile goes up, so it is purgeable.
+
+        Account deletion cancels a task mid-tiling; the pyramid it started is named only
+        by `result.hips_pending`, and a purge blind to that key would leave it live.
+        """
+        pending_secret = "P" * 22
+        sub_id, _ = await _submission(client)
+        await _task(sessions, sub_id, "cancelled", {
+            "center_ra": 1.0,
+            "hips_pending": f"http://localhost:9000/skymap-static-data/img/{pending_secret}",
+        })
+
+        assert (await client.delete(f"/submissions/{sub_id}")).status_code == 204
+
+        assert [c.args[0] for c in mock_hips_storage.delete_prefix.call_args_list] == [
+            f"img/{pending_secret}"]
+
     async def test_other_users_submission_purges_nothing(self, client, mock_storage, mock_hips_storage):
         from app.dependencies import get_current_user
         from app.main import app
@@ -112,6 +137,47 @@ class TestPurgePrefixes:
 
         assert (await client.delete(f"/submissions/{sub_id}")).status_code == 404
         mock_storage.delete_prefix.assert_not_called()
+        mock_hips_storage.delete_prefix.assert_not_called()
+
+
+class TestWorkStillInFlight:
+    """A submission the worker still owns cannot be deleted (409), it has to finish.
+
+    Purging under a running task is unrecoverable, not merely untidy: the solve
+    re-uploads its output into the private prefix that was just emptied, and the tiler
+    keeps filling `img/{secret}/` in the *public* bucket while its row is deleted out
+    from under it — so nothing left in the database can ever name those tiles again.
+    """
+
+    @pytest.mark.parametrize("task_status", ["pending", "processing", "tiling"])
+    async def test_refuses_while_a_task_is_running(self, client, sessions, mock_storage,
+                                                    mock_hips_storage, task_status):
+        sub_id, _ = await _submission(client)
+        await _task(sessions, sub_id, task_status, {"center_ra": 1.0})
+
+        resp = await client.delete(f"/submissions/{sub_id}")
+
+        assert resp.status_code == 409
+        mock_storage.delete_prefix.assert_not_called()
+        mock_hips_storage.delete_prefix.assert_not_called()
+        assert await _row_count(sessions, sub_id) == 1
+
+    @pytest.mark.parametrize("task_status", ["completed", "failed", "cancelled"])
+    async def test_a_finished_task_does_not_block(self, client, sessions, task_status):
+        sub_id, _ = await _submission(client)
+        await _task(sessions, sub_id, task_status)
+
+        assert (await client.delete(f"/submissions/{sub_id}")).status_code == 204
+        assert await _row_count(sessions, sub_id) == 0
+
+    async def test_one_running_task_blocks_the_whole_submission(self, client, sessions,
+                                                                 mock_hips_storage):
+        """A re-solve in flight next to a finished image: still nothing may be swept."""
+        sub_id, _ = await _submission(client)
+        await _tiled_task(sessions, sub_id, BASE)
+        await _task(sessions, sub_id, "processing")
+
+        assert (await client.delete(f"/submissions/{sub_id}")).status_code == 409
         mock_hips_storage.delete_prefix.assert_not_called()
 
 

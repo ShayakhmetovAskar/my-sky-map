@@ -8,7 +8,8 @@ happen in, live in `services.account_cleanup`.
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_user, get_db, get_hips_storage, get_storage, get_zitadel
@@ -22,7 +23,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/me", tags=["Account"])
 
 
-@router.delete("/account", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/account",
+    responses={
+        204: {"description": "Everything is gone, identity included"},
+        200: {"description": "The data is erased but the identity survived — see `identity`"},
+        503: {"description": "Storage is unavailable; nothing was deleted"},
+    },
+)
 async def delete_my_account(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -36,6 +44,14 @@ async def delete_my_account(
     are still there, so the client can simply try again.  The response body never
     quotes the failure — a storage error names the object key, i.e. an image's
     capability secret.
+
+    204 means *everything* is gone.  A partial deletion must not look like a complete
+    one: `clients.zitadel.ZitadelClient` speaks no management API yet, so today the
+    identity survives every erasure — the user's email, name and credentials stay at
+    the IdP and the account can still sign in.  That case answers 200 with
+    `{"data_erased": true, "identity": "skipped" | "failed"}` so the frontend can tell
+    the user their login still has to be removed by hand, instead of the API claiming
+    a deletion it did not perform.
     """
     try:
         report = await delete_account(
@@ -51,6 +67,13 @@ async def delete_my_account(
         ) from None
 
     if report.identity != "deleted":
-        # The user's data is gone either way; their login may still exist. 204 is
-        # still the honest answer to "delete my account" — see `_delete_identity`.
-        logger.warning("Account %s: data erased, identity %s", user_id, report.identity)
+        # `error`, not `warning`: this is the only record that an erasure request was
+        # carried out only in part, and it belongs in whatever watches the error log.
+        logger.error("Account %s: data erased, identity %s — the login still exists and "
+                     "has to be removed at the identity provider", user_id, report.identity)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"data_erased": True, "identity": report.identity},
+        )
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

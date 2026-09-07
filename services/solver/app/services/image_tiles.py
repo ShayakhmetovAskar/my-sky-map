@@ -22,7 +22,7 @@ import asyncio
 import logging
 import re
 import secrets
-from typing import Any, Dict, Iterable, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 from uuid import UUID
 
 from ..models.db import Task
@@ -31,7 +31,8 @@ from .storage import StorageService
 
 logger = logging.getLogger(__name__)
 
-# `result.hips.base` is `{HIPS_PUBLIC_BASE_URL}/img/{secret}`.  The endpoint in the
+# `result.hips.base` (and `result.hips_pending` while the pyramid is still being
+# written) is `{HIPS_PUBLIC_BASE_URL}/img/{secret}`.  The endpoint in the
 # config may have changed since the tiles were written (dev MinIO -> object storage),
 # so the key prefix is read off the tail of the URL instead of by stripping the
 # base URL that happens to be configured now.
@@ -62,6 +63,30 @@ def hips_base(result: Any) -> Optional[str]:
         return None
     base = hips.get("base")
     return base if isinstance(base, str) else None
+
+
+def hips_pending_base(result: Any) -> Optional[str]:
+    """`result.hips_pending` of a task, or None.
+
+    The worker mints the image secret and commits this key *before* it uploads the
+    first tile, so a task sitting in `tiling` already has a public prefix on record.
+    Without it, a delete that lands mid-tiling would purge nothing and the worker
+    would go on writing a pyramid nothing in the database can ever name again.
+    `build_hips` replaces it with the real `result.hips.base` when it finishes.
+    """
+    if not isinstance(result, dict):
+        return None
+    base = result.get("hips_pending")
+    return base if isinstance(base, str) else None
+
+
+def tile_bases(result: Any) -> List[str]:
+    """Every public base URL one task's tiles may live under — committed and in flight.
+
+    What a purge has to sweep: the finished pyramid (`hips.base`) and, for a task the
+    worker is still tiling, the prefix it is uploading into (`hips_pending`).
+    """
+    return [base for base in (hips_base(result), hips_pending_base(result)) if base]
 
 
 def tile_prefix(base: Optional[str]) -> Optional[str]:

@@ -9,8 +9,9 @@ the edge is not a staircase on the orders below ``kmax``.  Tiles with zero alpha
 not written.
 
 Every image gets its own random secret; the tiles live under ``img/{secret}/`` in the
-public bucket and the secret is returned only through ``result.hips.base`` (never
-logged).  Nothing is read back or composited — one image writes only its own folder.
+public bucket and the secret reaches the outside world only through ``result.hips.base``
+(and ``result.hips_pending`` while the pyramid is being written) — never through a log.
+Nothing is read back or composited — one image writes only its own folder.
 """
 
 from __future__ import annotations
@@ -133,6 +134,26 @@ def load_image(path) -> np.ndarray:
         return _load_fits_rgb(path)
     with Image.open(path) as im:
         return np.asarray(im.convert("RGB"), dtype=np.uint8)
+
+
+def image_size(path) -> Tuple[int, int]:
+    """``(width, height)`` of an image, read from its header — the pixels are not decoded.
+
+    The solve half needs the dimensions (for ``corners`` and the ``width``/``height`` of
+    the layer payload) long before the tiler loads the image, and a full decode of a
+    6000x4000 frame just to read two numbers is exactly the memory the worker cannot
+    spare while three tasks share the pod.
+    """
+    path = Path(path)
+    if path.suffix.lower() in FITS_EXTENSIONS:
+        with fits.open(str(path)) as hdul:
+            for hdu in hdul:
+                shape = getattr(hdu, "shape", ()) or ()
+                if len(shape) >= 2:
+                    return int(shape[-1]), int(shape[-2])
+        raise ValueError("No image data in FITS file")
+    with Image.open(path) as im:
+        return int(im.width), int(im.height)
 
 
 def downscale(img: np.ndarray, max_side: int = MAX_SIDE) -> Tuple[np.ndarray, Tuple[float, float]]:
@@ -270,7 +291,10 @@ def build_hips(image_path, wcs_path, storage, public_base_url: str, *,
     """Cut, encode and upload every tile of one image; return the ``result`` fragment.
 
     ``storage`` needs ``upload_bytes(key, data, content_type, cache_control=...)``.
-    Returns ``{"hips": {kmax, tiles, moc, base, thumb, seconds}, "corners": [[ra, dec] x 4]}``.
+    Returns ``{"hips": {kmax, tiles, moc, base, thumb, seconds}, "corners": [[ra, dec] x 4],
+    "width": w, "height": h}``.  ``corners``/``width``/``height`` are also written by the
+    solve half (``Pipeline._frame_geometry``) so a ``tiling`` image already carries them;
+    the values are identical, this call just restates them.
     Tiles are processed one at a time; nothing is held in memory beyond the image itself.
     """
     t0 = time.monotonic()
@@ -321,4 +345,6 @@ def build_hips(image_path, wcs_path, storage, public_base_url: str, *,
             "seconds": seconds,
         },
         "corners": corners,
+        "width": w0,
+        "height": h0,
     }

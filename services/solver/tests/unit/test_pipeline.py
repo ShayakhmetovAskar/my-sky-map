@@ -1,12 +1,19 @@
 """Unit tests for worker pipeline."""
 
+import shutil
+
 import pytest
 from pathlib import Path
+from PIL import Image
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
+from app.services.image_tiles import tile_prefix
+from worker.hips import image_corners
 from worker.pipeline import Pipeline, get_solver
 from worker.solvers.base import SolveResult, SolveError
+
+from .test_hips import coord_image, make_wcs, write_wcs
 
 FAKE_HIPS = {
     "hips": {"kmax": 6, "tiles": 12, "moc": {"0": [3], "6": [12404]}, "base": "http://pub/img/s", "thumb": "http://pub/img/s/thumb.jpg", "seconds": 1.5},
@@ -204,6 +211,111 @@ class TestPipelineTiling:
 
         build.assert_not_called()
         assert "WCS" in result["hips_error"]
+
+
+class TestPendingSecret:
+    """The tile secret reaches the database *before* the first tile reaches the bucket.
+
+    Otherwise a delete, an account erasure or a crash that lands mid-tiling leaves a
+    world-readable pyramid that no row names and no purge can ever find.
+    """
+
+    async def test_on_solved_carries_the_prefix_the_tiler_will_write(self, tmp_path):
+        pipeline, hips_storage = TestPipelineTiling()._make_pipeline(tmp_path)
+        on_solved = AsyncMock()
+
+        with patch("worker.pipeline.get_mesh", return_value=[[]]), \
+             patch("worker.pipeline.build_hips", return_value=FAKE_HIPS) as build:
+            await pipeline.process(
+                task_id=uuid4(),
+                object_key="users/uid/submissions/sid/input/original.jpg",
+                on_solved=on_solved,
+            )
+
+        published = on_solved.await_args.args[0]["hips_pending"]
+        secret = build.call_args.kwargs["secret"]
+        assert published == f"{hips_storage.public_base_url}/img/{secret}"
+
+    async def test_the_stored_result_drops_the_pending_key(self, tmp_path):
+        """Once tiling is done `hips.base` is the record; two pointers would be one too many."""
+        pipeline, _ = TestPipelineTiling()._make_pipeline(tmp_path)
+
+        with patch("worker.pipeline.get_mesh", return_value=[[]]), \
+             patch("worker.pipeline.build_hips", return_value=FAKE_HIPS):
+            result = await pipeline.process(
+                task_id=uuid4(),
+                object_key="users/uid/submissions/sid/input/original.jpg",
+                on_solved=AsyncMock(),
+            )
+
+        assert "hips_pending" not in result
+
+    async def test_a_failed_tiling_cleans_up_the_published_prefix(self, tmp_path):
+        pipeline, hips_storage = TestPipelineTiling()._make_pipeline(tmp_path)
+        on_solved = AsyncMock()
+
+        with patch("worker.pipeline.get_mesh", return_value=[[]]), \
+             patch("worker.pipeline.build_hips", side_effect=ValueError("bad wcs")):
+            result = await pipeline.process(
+                task_id=uuid4(),
+                object_key="users/uid/submissions/sid/input/original.jpg",
+                on_solved=on_solved,
+            )
+
+        published = on_solved.await_args.args[0]["hips_pending"]
+        assert hips_storage.delete_prefix.call_args.args[0] == tile_prefix(published)
+        assert "hips_pending" not in result and result["hips_error"] == "bad wcs"
+
+
+class TestFrameGeometry:
+    """`corners`/`width`/`height` come from the solve, so a `tiling` image can be outlined."""
+
+    def test_reads_them_off_the_wcs(self, tmp_path):
+        w, h, pixscale = 400, 300, 10.0
+        image_path = tmp_path / "input.png"
+        Image.fromarray(coord_image(w, h), "RGB").save(image_path)
+        wcs = make_wcs(w, h, pixscale, rot_deg=20.0)
+        wcs_path = tmp_path / "wcs.fits"
+        write_wcs(wcs_path, wcs, w, h)
+
+        geometry = Pipeline._frame_geometry(image_path, wcs_path)
+
+        assert (geometry["width"], geometry["height"]) == (w, h)
+        assert geometry["corners"] == image_corners(wcs, w, h)
+
+    def test_no_wcs_is_no_geometry_and_no_exception(self, tmp_path):
+        assert Pipeline._frame_geometry(tmp_path / "input.png", None) == {}
+        assert Pipeline._frame_geometry(tmp_path / "input.png", tmp_path / "missing.fits") == {}
+
+    def test_an_unreadable_image_does_not_fail_the_solve(self, tmp_path):
+        wcs_path = tmp_path / "wcs.fits"
+        write_wcs(wcs_path, make_wcs(10, 10, 1.0), 10, 10)
+        assert Pipeline._frame_geometry(tmp_path / "not-an-image.jpg", wcs_path) == {}
+
+    async def test_the_solve_result_carries_them_before_tiling_starts(self, tmp_path):
+        """What `_mark_tiling` commits is what `/me/sky` serves for a `tiling` image."""
+        w, h = 400, 300
+        image_path = tmp_path / "input.png"
+        Image.fromarray(coord_image(w, h), "RGB").save(image_path)
+
+        pipeline, _ = TestPipelineTiling()._make_pipeline(tmp_path)
+        # after `_make_pipeline`: it plants a stub at the same path
+        write_wcs(tmp_path / "wcs.fits", make_wcs(w, h, 10.0), w, h)
+        pipeline.storage.download_object.side_effect = (
+            lambda key, dest: shutil.copyfile(image_path, dest))
+        on_solved = AsyncMock()
+
+        with patch("worker.pipeline.get_mesh", return_value=[[]]), \
+             patch("worker.pipeline.build_hips", return_value=FAKE_HIPS):
+            await pipeline.process(
+                task_id=uuid4(),
+                object_key="users/uid/submissions/sid/input/original.png",
+                on_solved=on_solved,
+            )
+
+        published = on_solved.await_args.args[0]
+        assert (published["width"], published["height"]) == (w, h)
+        assert len(published["corners"]) == 4
 
 
 class TestGetSolver:

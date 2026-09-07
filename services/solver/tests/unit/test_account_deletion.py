@@ -169,6 +169,19 @@ async def add_task(factory, submission_id: UUID, user_id: str, base: str | None)
     return task_id
 
 
+async def add_live_task(factory, submission_id: UUID, user_id: str, status: str,
+                        result=None) -> UUID:
+    """A task the worker still owns — pending, processing or mid-tiling."""
+    from app.models.db import Task
+
+    task_id = uuid4()
+    async with factory() as db:
+        db.add(Task(id=task_id, submission_id=submission_id, user_id=user_id,
+                    status=status, result=result))
+        await db.commit()
+    return task_id
+
+
 def add_collection(user_id: str, share_token: str | None, task_ids=()) -> UUID:
     collection_id = uuid4()
     with _sync_engine.begin() as conn:
@@ -285,6 +298,62 @@ class TestOrder:
         assert purged == [f"img/{SECRET}", f"img/{SECOND_SECRET}"]
         # One sweep of the private bucket covers every submission of the user.
         mock_storage.delete_prefix.assert_called_once_with(f"users/{TEST_USER}")
+
+
+class TestWorkInFlight:
+    """The worker has to be taken off the account before its objects are swept.
+
+    A task still running re-creates its output under the private prefix right after the
+    purge emptied it, and a task in `tiling` keeps filling a *public* prefix whose row is
+    about to be deleted — a world-readable pyramid nothing can name afterwards.
+    """
+
+    async def test_live_tasks_are_cancelled_before_a_single_object_is_touched(
+        self, client, sessions, mock_storage, mock_hips_storage, zitadel,
+    ):
+        sub_id = await add_submission(sessions, TEST_USER)
+        for status in ("pending", "processing", "tiling"):
+            await add_live_task(sessions, sub_id, TEST_USER, status)
+        seen = {}
+        mock_storage.delete_prefix.side_effect = lambda prefix: seen.setdefault(
+            "live_at_purge",
+            peek("SELECT count(*) FROM tasks WHERE user_id = :uid AND status IN "
+                 "('pending','processing','tiling')", uid=TEST_USER),
+        ) or 0
+
+        assert (await client.delete("/me/account")).status_code == 204
+
+        assert seen["live_at_purge"] == 0
+
+    async def test_the_prefix_a_task_was_still_tiling_is_purged(
+        self, client, sessions, mock_storage, mock_hips_storage, zitadel,
+    ):
+        """`result.hips_pending` is the only record of a half-written pyramid."""
+        pending_secret = "P" * 22
+        sub_id = await add_submission(sessions, TEST_USER)
+        await add_live_task(sessions, sub_id, TEST_USER, "tiling", {
+            "center_ra": 1.0,
+            "hips_pending": f"http://localhost:9000/skymap-static-data/img/{pending_secret}",
+        })
+
+        assert (await client.delete("/me/account")).status_code == 204
+
+        assert [c.args[0] for c in mock_hips_storage.delete_prefix.call_args_list] == [
+            f"img/{pending_secret}"]
+        assert count("tasks", TEST_USER) == 0
+
+    async def test_a_report_counts_what_it_cancelled(
+        self, client, sessions, mock_storage, mock_hips_storage,
+    ):
+        sub_id = await add_submission(sessions, TEST_USER)
+        await add_live_task(sessions, sub_id, TEST_USER, "processing")
+        await add_task(sessions, sub_id, TEST_USER, BASE)          # already completed
+
+        async with sessions() as db:
+            report = await delete_account(TEST_USER, db=db, storage=mock_storage,
+                                          hips_storage=mock_hips_storage, zitadel=None)
+
+        assert report.tasks_cancelled == 1
 
 
 class TestScope:
@@ -424,11 +493,17 @@ class TestIdentity:
     async def test_todo_hook_is_skipped_while_the_client_has_no_management_api(
         self, client, sessions, mock_storage, mock_hips_storage,
     ):
-        """The real `ZitadelClient` only validates tokens — the data still has to go."""
+        """The real `ZitadelClient` only validates tokens — the data still has to go.
+
+        And the answer must say so: a 204 would claim the whole account is gone while
+        the login it names still works.
+        """
         await add_submission(sessions, TEST_USER)
         app.dependency_overrides[get_zitadel] = lambda: MagicMock(spec=ZitadelClient)
 
-        assert (await client.delete("/me/account")).status_code == 204
+        resp = await client.delete("/me/account")
+        assert resp.status_code == 200
+        assert resp.json() == {"data_erased": True, "identity": "skipped"}
         assert count("submissions", TEST_USER) == 0
 
         async with sessions() as db:
@@ -456,9 +531,11 @@ class TestIdentity:
         await full_account(sessions)
         zitadel.delete_user.side_effect = RuntimeError("zitadel returned 500")
 
-        # The user asked for deletion and their data is gone; the leftover identity
-        # is an operator problem, not a reason to report failure.
-        assert (await client.delete("/me/account")).status_code == 204
+        # The user asked for deletion and their data is gone — that is not a 503. But it
+        # is not a 204 either: the caller has to learn the login outlived the request.
+        resp = await client.delete("/me/account")
+        assert resp.status_code == 200
+        assert resp.json() == {"data_erased": True, "identity": "failed"}
         assert count("submissions", TEST_USER) == 0
         assert count("collections", TEST_USER) == 0
 

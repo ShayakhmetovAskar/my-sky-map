@@ -52,10 +52,6 @@ class HipsStorage:
         self.bucket = settings.hips_bucket
         self.public_base_url = settings.hips_public_base_url.rstrip("/")
 
-    def public_url(self, key: str) -> str:
-        """Anonymous URL of an object (what the frontend fetches)."""
-        return f"{self.public_base_url}/{key.lstrip('/')}"
-
     def upload_bytes(self, key: str, data: bytes, content_type: str,
                      cache_control: Optional[str] = TILE_CACHE_CONTROL) -> None:
         """Upload an in-memory object. ``Cache-Control`` is stored as a response header."""

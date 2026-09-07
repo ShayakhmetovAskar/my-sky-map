@@ -11,7 +11,10 @@ export class StarsMeshLoader {
         this.jsonLoader = new JsonLoader(5);
         this.starMaterial = createStarMaterial();
 
-        this.pointsCache = new LRUCache(100);
+        // На глубоком зуме в кадре одновременно до 96 тайлов (замер по всем
+        // уровням 0..9 в направлении балджа). Со старым лимитом 100 запаса не
+        // оставалось, и при панорамировании кэш выбрасывал ещё видимые меши.
+        this.pointsCache = new LRUCache(300);
         this.pointsCache.onEvict = (key, entry) => {
             this.group.remove(entry.mesh);
             if (entry.mesh.geometry) {
@@ -97,7 +100,7 @@ export class JsonLoader {
         this.baseUrl = API_CONFIG.STARS.baseUrl;
         this.maxConcurrent = maxConcurrent;
         this.currentCount = 0;
-        this.csvCache = new LRUCache(100);
+        this.csvCache = new LRUCache(300);
 
         this.loadingSet = new Set();
     }

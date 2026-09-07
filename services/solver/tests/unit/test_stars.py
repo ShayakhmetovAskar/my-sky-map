@@ -1,10 +1,18 @@
 """Unit tests for star catalog endpoint."""
 
-import pytest
+import time
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
-from app.routers.stars import _cache
+import pytest
+
+from app.routers.stars import (
+    NEGATIVE_CACHE_TTL,
+    SimbadUnavailable,
+    _cache,
+    _lookup_simbad,
+    _negative_cache,
+)
 
 
 @contextmanager
@@ -15,6 +23,18 @@ def cache_entry(key, value):
         yield
     finally:
         _cache.pop(key, None)
+
+
+@contextmanager
+def uncached(key):
+    """Guarantee `key` is in neither cache before and after the block."""
+    _cache.pop(key, None)
+    _negative_cache.pop(key, None)
+    try:
+        yield
+    finally:
+        _cache.pop(key, None)
+        _negative_cache.pop(key, None)
 
 
 class TestGetStarName:
@@ -42,13 +62,45 @@ class TestGetStarName:
     async def test_not_found(self, client):
         """Returns empty string when star not in cache, DB, or SIMBAD."""
         with patch("app.routers.stars._lookup_simbad", new_callable=AsyncMock, return_value=None):
-            _cache.pop("77777777777", None)
-            try:
+            with uncached("77777777777"):
                 res = await client.get("/stars/77777777777")
                 assert res.status_code == 200
                 assert res.json() == {"ProperName": ""}
-            finally:
-                _cache.pop("77777777777", None)
+
+    async def test_not_found_is_negative_cached(self, client):
+        """A real SIMBAD miss is remembered: the second request does not query again."""
+        lookup = AsyncMock(return_value=None)
+        with patch("app.routers.stars._lookup_simbad", lookup), uncached("77777777778"):
+            for _ in range(2):
+                res = await client.get("/stars/77777777778")
+                assert res.json() == {"ProperName": ""}
+            assert lookup.await_count == 1
+            assert "77777777778" in _negative_cache
+            assert "77777777778" not in _cache  # misses never enter the positive cache
+
+    async def test_negative_cache_expires_after_ttl(self, client):
+        """Once the TTL has passed the miss is forgotten and SIMBAD is asked again."""
+        lookup = AsyncMock(return_value=None)
+        with patch("app.routers.stars._lookup_simbad", lookup), uncached("77777777779"):
+            await client.get("/stars/77777777779")
+            expires_at = _negative_cache["77777777779"]
+            assert expires_at - time.monotonic() == pytest.approx(NEGATIVE_CACHE_TTL, abs=5)
+
+            _negative_cache["77777777779"] = time.monotonic() - 1  # pretend a day passed
+            await client.get("/stars/77777777779")
+            assert lookup.await_count == 2
+            assert _negative_cache["77777777779"] > time.monotonic()  # re-armed
+
+    async def test_simbad_unavailable_is_503_and_not_cached(self, client):
+        """A SIMBAD outage is a 503, not an empty name, and must not poison the negative cache."""
+        lookup = AsyncMock(side_effect=SimbadUnavailable("77777777780"))
+        with patch("app.routers.stars._lookup_simbad", lookup), uncached("77777777780"):
+            for _ in range(2):
+                res = await client.get("/stars/77777777780")
+                assert res.status_code == 503
+            assert lookup.await_count == 2  # asked again — nothing was cached
+            assert "77777777780" not in _negative_cache
+            assert "77777777780" not in _cache
 
     async def test_from_db(self, client):
         """Returns star name from DB when not in cache."""
@@ -151,3 +203,42 @@ class TestGetStarDetails:
         """Returns 400 for invalid source_id."""
         res = await client.get("/stars/abc/details")
         assert res.status_code == 400
+
+    async def test_details_simbad_unavailable(self, client):
+        """Returns 503, not 404, when SIMBAD could not be asked."""
+        lookup = AsyncMock(side_effect=SimbadUnavailable("55555555555"))
+        with patch("app.routers.stars._lookup_simbad", lookup):
+            res = await client.get("/stars/55555555555/details")
+            assert res.status_code == 503
+
+
+class TestLookupSimbad:
+    """_lookup_simbad: "not found" vs "could not ask". No DB needed."""
+
+    async def test_all_queries_empty_is_not_found(self):
+        with patch("app.routers.stars._simbad_query_sync", return_value=None) as q:
+            assert await _lookup_simbad("1234567890123456789") is None
+            assert q.call_count == 2  # Gaia DR3 + DR2 for a long id
+
+    async def test_query_error_raises_unavailable(self):
+        with patch("app.routers.stars._simbad_query_sync", side_effect=ConnectionError("down")):
+            with pytest.raises(SimbadUnavailable):
+                await _lookup_simbad("1234567890123456789")
+
+    async def test_partial_error_raises_unavailable(self):
+        """One query failed, the other said "not found": the failed one might
+        have matched, so this is still "could not ask"."""
+        def flaky(query_id):
+            if query_id.startswith("Gaia DR3"):
+                raise TimeoutError("slow")
+            return None
+
+        with patch("app.routers.stars._simbad_query_sync", side_effect=flaky):
+            with pytest.raises(SimbadUnavailable):
+                await _lookup_simbad("1234567890123456789")
+
+    async def test_hip_id_queries_three_catalogues(self):
+        with patch("app.routers.stars._simbad_query_sync", return_value=None) as q:
+            assert await _lookup_simbad("32349") is None
+            queried = {c.args[0] for c in q.call_args_list}
+            assert queried == {"HIP 32349", "Gaia DR3 32349", "Gaia DR2 32349"}

@@ -7,6 +7,14 @@ data:
   MINIO_ENDPOINT: "storage.yandexcloud.net"
   MINIO_BUCKET: "solver-data"
   MINIO_SECURE: "true"
+  # Public HiPS bucket (APO-81): per-image sky tiles under img/{secret}/, anonymous GET only.
+  # The write key lives in the `skymap-hips-secrets` Secret (HIPS_ACCESS_KEY / HIPS_SECRET_KEY) —
+  # a dedicated YC service account with storage.uploader on this bucket, created by the owner
+  # (real key never in the repo). See docs/hips-storage.md.
+  HIPS_ENDPOINT: "storage.yandexcloud.net"
+  HIPS_BUCKET: "skymap-static-data"
+  HIPS_SECURE: "true"
+  HIPS_PUBLIC_BASE_URL: "https://storage.yandexcloud.net/skymap-static-data"
   ZITADEL_ISSUER_URL: "https://skymap-auth.afsh.space"
   ZITADEL_AUDIENCE: ""
   CORS_ORIGINS: "https://skymap-playground.afsh.space,https://skymap-app.afsh.space"

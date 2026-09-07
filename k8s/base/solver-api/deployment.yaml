@@ -50,6 +50,25 @@ spec:
                 secretKeyRef:
                   name: skymap-secrets
                   key: MINIO_SECRET_KEY
+            # Write key for the public HiPS bucket (APO-81). The worker writes the tiles;
+            # the API needs the same key to purge img/{secret}/ when an image is deleted
+            # (APO-87). Placeholder reference only — the owner creates the Secret out of
+            # band, it is never stored in the repo:
+            #   kubectl -n skymap create secret generic skymap-hips-secrets \
+            #     --from-literal=HIPS_ACCESS_KEY=... --from-literal=HIPS_SECRET_KEY=...
+            # `optional` so the pod still starts without it (tiling then reports hips_error).
+            - name: HIPS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-hips-secrets
+                  key: HIPS_ACCESS_KEY
+                  optional: true
+            - name: HIPS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-hips-secrets
+                  key: HIPS_SECRET_KEY
+                  optional: true
           readinessProbe:
             httpGet:
               path: /healthcheck

@@ -293,7 +293,7 @@ export default class ControlsManager {
     this._onFovChange(newFov);
   }
 
-  // ── PROTOTYPE APO-85: smooth flight to a sky position ──────────────────────
+  // ── Smooth flight to a sky position ────────────────────────────────────────
   /** World-space unit vector pointing at (ra, dec) in degrees, including the skyGroup rotation. */
   _skyDirection(raDeg, decDeg) {
     const ra = THREE.MathUtils.degToRad(raDeg);

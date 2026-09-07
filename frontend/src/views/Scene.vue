@@ -22,7 +22,7 @@
     @max-fps-changed="onMaxFpsChanged"
   />
 
-  <!-- PROTOTYPE APO-85: My Sky dock -->
+  <!-- My Sky: the signed-in user's solved images (GET /me/sky) -->
   <MySkyPanel v-if="!embedded && mySkyEnabled"
     ref="mySkyPanelRef"
     :images="mySkyImages"
@@ -46,9 +46,9 @@
     @toggle-visible="onMySkyToggleVisible"
     @opacity="onMySkyOpacity"
   />
-  <!-- PROTOTYPE APO-85: outline labels (DOM, projected each frame) -->
+  <!-- My Sky outline labels (DOM, projected each frame) -->
   <div ref="mySkyLabelsRef" class="mysky-labels"></div>
-  <!-- PROTOTYPE APO-85: compare slider line -->
+  <!-- My Sky compare slider line -->
   <div v-if="mySkyEnabled && mySkyCompareOn" class="compare-line" :style="{ left: mySkyCompareX + 'px' }" @pointerdown="onCompareDown" @wheel.prevent="onCompareWheel">
     <div class="compare-handle"><span>my photo</span><span class="compare-sep">⇔</span><span>DSS</span></div>
   </div>
@@ -97,7 +97,7 @@
 </template>
 
 <script>
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import * as THREE from 'three';
 import SceneManager from '@/managers/SceneManager.js';
 import ControlsManager from '@/managers/ControlsManager';
@@ -116,6 +116,8 @@ import OverlayManager from '@/managers/OverlayManager';
 import FootprintManager from '@/managers/FootprintManager';
 import { UserHipsCompositeLoader } from '@/utils/userHipsComposite';
 import MySkyPanel from '@/components/MySkyPanel.vue';
+import apiClient from '@/utils/apiClient';
+import { useAuth } from '@/composables/useAuth';
 import { getWorldUp, equatorial_to_cartesian, cartesian_to_equatorial, isPoleOnScreen, equatorialToHorizontal, getZenithRaDecFast, formatDMS, formatHMS, angularDistance } from '@/utils/algos';
 import debugSettings from '@/settings/debugSettings';
 
@@ -168,8 +170,11 @@ export default {
     const angDistPoint1 = ref(null); // { raDeg, decDeg }
     const angDistResult = ref('');
 
-    // PROTOTYPE APO-85: My Sky panel state
-    const mySkyEnabled = ref(false);
+    // ── My Sky: the user's own solved images as a layer over the DSS ─────────
+    // Data comes from `GET /me/sky`; the panel exists only for a signed-in user.
+    const { isAuthenticated, getToken } = useAuth();
+    const mySkyLoaded = ref(false);
+    const mySkyEnabled = computed(() => isAuthenticated.value && mySkyLoaded.value);
     const mySkyImages = ref([]);
     const mySkySelectedId = ref(null);
     const mySkyLayerOn = ref(true);
@@ -187,7 +192,10 @@ export default {
       localStorage.setItem('mySkyStars', v ? '1' : '0');
       healpixManager?.setStarsVisible(v);
     };
-    const mySkyVisible = () => mySkyImages.value.filter(im => !mySkyHiddenIds.value.includes(im.id));
+    /** Images that can actually be drawn: tiled (`ready`) and not hidden by the eye.
+     *  `tiling` ones have no moc/base yet — they only show in the list, with a spinner. */
+    const mySkyVisible = () => mySkyImages.value
+        .filter(im => im.status === 'ready' && !mySkyHiddenIds.value.includes(im.id));
     const mySkyCompareX = ref(Math.round(320 + (window.innerWidth - 320) / 2));
     let footprintManager = null;
     let userLayer = null; // UserHipsCompositeLoader
@@ -301,7 +309,7 @@ export default {
       }
     };
 
-    // PROTOTYPE APO-85: panel → scene
+    // panel → scene
     const onMySkyFly = (img) => {
       if (!controlsManager || !img) return;
       // the target may be below the horizon right now — the ground would hide it
@@ -382,6 +390,88 @@ export default {
     };
     const onMySkyOpacity = (v) => { mySkyOpacity.value = v; applyMySkyOpacity(); };
 
+    // ── My Sky data: GET /me/sky ────────────────────────────────────────────
+    const MYSKY_TILING_POLL_MS = 15000;  // an image is `tiling` for a minute or two
+    const MYSKY_STALE_MS = 30000;        // refetch on tab focus if the list is older than this
+    let mySkyTimer = null;
+    let mySkyFetchedAt = 0;
+    let mySkyInflight = false;
+
+    const scheduleMySkyReload = (delayMs) => {
+      clearTimeout(mySkyTimer);
+      mySkyTimer = setTimeout(() => { loadMySky(); }, delayMs);
+    };
+
+    /** Hand a fresh image list to the layer, the outlines and the panel. */
+    const applyMySkyImages = (images) => {
+      mySkyImages.value = images;
+      // only tiled images can be drawn; `tiling` ones have no moc/base yet
+      const drawable = images.filter(im => im.status === 'ready');
+      if (userLayer) userLayer.setImages(drawable);
+      else userLayer = new UserHipsCompositeLoader(drawable);
+      // a selection can disappear on refresh (image deleted elsewhere)
+      if (mySkySelectedId.value && !images.some(im => im.id === mySkySelectedId.value)) onMySkySelect(null);
+      healpixManager?.setUserLayer(userLayer, userLayer.maxOrder);
+      applyMySkyHidden();
+      applyMySkyOutlines();
+      applyMySkyOpacity();
+      applyMySkySplit();
+      healpixManager?.setStarsVisible(mySkyStarsOn.value);
+    };
+
+    const loadMySky = async () => {
+      clearTimeout(mySkyTimer);
+      if (props.embedded || mySkyInflight || !getToken()) return;
+      mySkyInflight = true;
+      try {
+        const { data } = await apiClient.get('/me/sky');
+        const images = data?.images || [];
+        mySkyFetchedAt = Date.now();
+        applyMySkyImages(images);
+        const first = !mySkyLoaded.value;
+        mySkyLoaded.value = true;
+        // images still being tiled turn `ready` on their own — poll until they do
+        if (images.some(im => im.status === 'tiling')) scheduleMySkyReload(MYSKY_TILING_POLL_MS);
+        if (first) applyMySkyDeepLink(images);
+      } catch (err) {
+        if (err.response?.status !== 401) {
+          console.warn('[my sky] /me/sky failed, retrying', err.message);
+          scheduleMySkyReload(MYSKY_TILING_POLL_MS);
+        }
+      } finally {
+        mySkyInflight = false;
+      }
+    };
+
+    /** ?img=<id or id prefix> flies to that image once the list is known. */
+    const applyMySkyDeepLink = (images) => {
+      const wanted = new URLSearchParams(window.location.search).get('img');
+      const target = wanted && images.find(im => im.id === wanted || im.id.startsWith(wanted));
+      if (target) setTimeout(() => { onMySkySelect(target); onMySkyFly(target); }, 800);
+    };
+
+    /** A photo solved in another tab should show up when this one is looked at again. */
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && mySkyLoaded.value
+          && Date.now() - mySkyFetchedAt > MYSKY_STALE_MS) loadMySky();
+    };
+
+    /** Sign-out (including the 401 interceptor) takes the layer off the sky. */
+    watch(isAuthenticated, (authed) => {
+      if (authed) { if (!mySkyLoaded.value) loadMySky(); return; }
+      clearTimeout(mySkyTimer);
+      mySkyLoaded.value = false;
+      mySkyImages.value = [];
+      mySkySelectedId.value = null;
+      healpixManager?.setUserLayer(null, 0);
+      userLayer?.dispose();
+      userLayer = null;
+      footprintManager?.setAll(null);
+      footprintManager?.setLabels(null);
+      footprintManager?.setHover(null);
+      footprintManager?.setSelected(null);
+    });
+
     onMounted(() => {
       sceneManager = new SceneManager(threeContainer.value);
       sceneManager.rotateSky(observer.longitude, observer.latitude, new Date());
@@ -453,7 +543,7 @@ export default {
         cursorY.value = _lastClientY + 16;
         cursorTooltipVisible.value = true;
 
-        // PROTOTYPE APO-85: photo under the cursor → highlight its row + outline, name in the tooltip
+        // photo under the cursor → highlight its row + outline
         if (mySkyEnabled.value) {
           const hit = mySkyImageAt(raDeg, decDeg);
           const id = hit ? hit.id : null;
@@ -487,7 +577,7 @@ export default {
         if (!e.shiftKey) {
           angDistPoint1.value = null;
           angDistResult.value = '';
-          // PROTOTYPE APO-85: a plain click (no drag) on a photo selects it in the panel
+          // a plain click (no drag) on a photo selects it in the panel
           if (mySkyEnabled.value && Math.hypot(e.clientX - _downX, e.clientY - _downY) < 4) {
             _raycaster.setFromCamera(_mouse, sceneManager.camera);
             const d = _raycaster.ray.direction.clone().applyQuaternion(sceneManager.skyGroup.quaternion.clone().invert());
@@ -527,7 +617,7 @@ export default {
       uiManager = new UIManager(hudRef.value);
       healpixManager = new HealpixManager(sceneManager.skyGroup, labelManager);
 
-      // PROTOTYPE APO-85: image outlines + list data (static json for the prototype)
+      // My Sky image outlines on the sky
       footprintManager = new FootprintManager(sceneManager.skyGroup);
       footprintManager.setLabelContainer(mySkyLabelsRef.value, (img) => { onMySkySelect(img); onMySkyFly(img); }, sceneManager.renderer.domElement);
       window.addEventListener('pointermove', onCompareMove);
@@ -544,43 +634,15 @@ export default {
           groundManager.setVisible(false);
         }, 1500);
       }
-      if (new URLSearchParams(window.location.search).has('mysky')) {
-        fetch('/spike/mysky.json')
-          .then(r => r.json())
-          .then(({ images }) => {
-            mySkyImages.value = images; mySkyEnabled.value = true;
-            userLayer = new UserHipsCompositeLoader(images);
-            healpixManager.setUserLayer(userLayer, userLayer.maxOrder);
-            applyMySkyOutlines(); applyMySkyHidden(); applyMySkyOpacity(); applyMySkySplit();
-            healpixManager.setStarsVisible(mySkyStarsOn.value);
-            const wanted = new URLSearchParams(window.location.search).get('img');
-            const target = wanted && images.find(im => im.id === wanted || im.id.startsWith(wanted));
-            if (target) setTimeout(() => { onMySkySelect(target); onMySkyFly(target); }, 800);
-          })
-          .catch(e => console.warn('[proto] mysky.json failed', e));
-      }
+      document.addEventListener('visibilitychange', onVisibilityChange);
+      loadMySky();
+
       groundManager = new GroundManager(sceneManager.scene);
       overlayManager = new OverlayManager(sceneManager.skyGroup, controlsManager);
 
       if (props.taskId) {
         groundManager.setVisible(false);
         overlayManager.overlay(props.taskId);
-      }
-
-      // SPIKE APO-80: ?mysky=ra,dec,fov points the camera at a sky position (deg)
-      const spikeTarget = new URLSearchParams(window.location.search).get('mysky');
-      if (spikeTarget && spikeTarget.includes(',')) {
-        const [ra, dec, fov] = spikeTarget.split(',').map(Number);
-        setTimeout(() => {
-          const raRad = THREE.MathUtils.degToRad(ra);
-          const decRad = THREE.MathUtils.degToRad(dec);
-          const p = new THREE.Vector3(-Math.cos(decRad) * Math.sin(raRad), Math.sin(decRad), -Math.cos(decRad) * Math.cos(raRad));
-          p.applyMatrix4(sceneManager.skyGroup.matrixWorld).normalize();
-          controlsManager.camera.position.set(-p.x, -p.y, -p.z);
-          controlsManager.setFov(fov);
-          groundManager.setVisible(false);
-          console.info('[spike] camera ->', ra, dec, fov);
-        }, 1500);
       }
 
       healpixManager.update();
@@ -660,7 +722,6 @@ export default {
         }
 
         healpixManager.setOrder(sceneManager.camera);
-        // PROTOTYPE APO-85
         footprintManager?.update(sceneManager.camera, window.innerWidth, window.innerHeight);
         if (mySkyEnabled.value) syncUrlFromCamera(performance.now());
       });
@@ -712,9 +773,13 @@ export default {
       if (!newTaskId && overlayManager) {
         overlayManager.removeAllOverlays();
       }
+      // opening a task means it has just been solved — its image may be new to the list
+      if (mySkyLoaded.value) loadMySky();
     });
 
     onBeforeUnmount(() => {
+      clearTimeout(mySkyTimer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       footprintManager?.dispose();
       userLayer?.dispose();
       window.removeEventListener('pointermove', onCompareMove);
@@ -784,7 +849,7 @@ export default {
       cursorY,
       cursorCoords,
       angDistResult,
-      // PROTOTYPE APO-85
+      // My Sky
       mySkyEnabled,
       mySkyImages,
       mySkySelectedId,
@@ -984,7 +1049,7 @@ export default {
   transform: translateY(-50%);
 }
 
-/* PROTOTYPE APO-85 */
+/* My Sky: sky labels and the compare slider */
 .mysky-labels { position: fixed; inset: 0; pointer-events: none; z-index: 90; }
 .mysky-labels :deep(.mysky-label),
 .mysky-labels .mysky-label {

@@ -1,5 +1,5 @@
 <template>
-  <!-- PROTOTYPE APO-85: left dock listing the user's solved images -->
+  <!-- Left dock listing the user's solved images -->
   <button class="mysky-toggle" :class="{ open: isOpen }" @click="isOpen = !isOpen" title="My Sky">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/>
@@ -59,7 +59,9 @@
             @click="fly(img, i)"
             @mouseenter="$emit('hover', img)"
             @mouseleave="$emit('hover', null)">
-          <img class="thumb" :src="img.thumb" :alt="img.title" loading="lazy" />
+          <!-- `thumb` is a public URL from the API; images still being tiled have none yet -->
+          <img v-if="img.thumb" class="thumb" :src="img.thumb" :alt="img.title" loading="lazy" />
+          <div v-else class="thumb thumb-empty" :title="img.title"></div>
           <div class="row-text">
             <div class="row-title">{{ img.title }}</div>
             <div class="row-meta">
@@ -270,6 +272,7 @@ onBeforeUnmount(stopTour)
   width: 52px; height: 52px; object-fit: cover; border-radius: 8px; flex-shrink: 0;
   background: #000; border: 1px solid rgba(255, 255, 255, 0.08);
 }
+.thumb-empty { background: repeating-linear-gradient(45deg, #16181d, #16181d 6px, #1d2027 6px, #1d2027 12px); }
 .row-text { flex: 1; min-width: 0; }
 .row-title { font-size: 0.9rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row-meta { font-size: 0.72rem; color: #8a93a0; margin-top: 2px; display: flex; gap: 5px; font-variant-numeric: tabular-nums; }

@@ -6,12 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_user, get_db
 from ..models.db import Submission, Task
-from ..schemas.sky import MySkyImage, MySkyResponse
+from ..schemas.sky import LISTED_TASK_STATUSES, MySkyImage, MySkyResponse
 
 router = APIRouter(prefix="/me", tags=["My Sky"])
-
-# Statuses that may show up in the layer; unsolved, failed and cancelled tasks never do.
-LISTED_TASK_STATUSES = ("completed", "tiling")
 
 
 @router.get("/sky", response_model=MySkyResponse)

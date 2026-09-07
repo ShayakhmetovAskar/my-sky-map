@@ -1,7 +1,7 @@
 """add collections and collection_items tables
 
 Revision ID: a7e3c1d94b52
-Revises: c2ff37466c44
+Revises: 4f7c1e2a9b3d
 Create Date: 2026-09-07 12:00:00.000000
 
 """
@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import UUID
 
 # revision identifiers, used by Alembic.
 revision: str = 'a7e3c1d94b52'
-down_revision: Union[str, Sequence[str], None] = 'c2ff37466c44'
+down_revision: Union[str, Sequence[str], None] = '4f7c1e2a9b3d'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

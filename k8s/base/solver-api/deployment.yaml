@@ -17,6 +17,11 @@ spec:
         - name: solver-api
           image: cr.yandex/crpvlpmjteb6egojpc4g/skymap-solver:latest
           imagePullPolicy: Always
+          # Forwarded to `uvicorn` by entrypoint.sh (ROLE=api). Access logs would record
+          # the full request path, and a share link carries its capability token in the
+          # path (`/api/v1/public/sky/{token}`) — logging it hands anyone with log access
+          # a working link to every shared collection (APO-88, design §5).
+          args: ["--no-access-log"]
           ports:
             - containerPort: 8000
           envFrom:

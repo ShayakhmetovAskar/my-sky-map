@@ -21,6 +21,11 @@ class SkyImageStatus(str, Enum):
     failed = "failed"    # solved but tiling failed: `completed` without `result.hips`
 
 
+# Task statuses that may reach the layer at all; pending, failed and cancelled tasks
+# never do. Shared by `/me/sky` and `/public/sky/{token}` so the two cannot drift.
+LISTED_TASK_STATUSES = ("completed", "tiling")
+
+
 # --- Default title: "21h30m +12°10′ · 2026-09-03" ---
 
 def format_ra_hm(ra_deg: float) -> str:
@@ -128,3 +133,15 @@ class MySkyImage(SkyImage):
 
 class MySkyResponse(BaseModel):
     images: list[MySkyImage]
+
+
+class PublicSkyResponse(BaseModel):
+    """Payload of a shared collection (APO-88).
+
+    `images` is typed as the base `SkyImage` on purpose: response_model filtering is the
+    second line of defence, so even a `MySkyImage` handed to this model would be
+    serialized without `filename`.
+    """
+
+    title: str
+    images: list[SkyImage]

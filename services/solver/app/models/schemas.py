@@ -168,6 +168,13 @@ class CollectionResponse(BaseModel):
         return [getattr(item, "task_id", item) for item in value]
 
 
+class ShareResponse(BaseModel):
+    """`POST /me/collections/{id}/share`. Only the token: the frontend builds the URL
+    from `location.origin`, so the API never has to know the public hostname."""
+
+    token: str = Field(..., description="Capability token; the share URL is {origin}/s/{token}")
+
+
 # --- Pagination ---
 
 class PaginatedSubmissions(BaseModel):

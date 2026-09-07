@@ -368,6 +368,22 @@ export default {
         overlayManager.overlay(props.taskId);
       }
 
+      // SPIKE APO-80: ?mysky=ra,dec,fov points the camera at a sky position (deg)
+      const spikeTarget = new URLSearchParams(window.location.search).get('mysky');
+      if (spikeTarget && spikeTarget.includes(',')) {
+        const [ra, dec, fov] = spikeTarget.split(',').map(Number);
+        setTimeout(() => {
+          const raRad = THREE.MathUtils.degToRad(ra);
+          const decRad = THREE.MathUtils.degToRad(dec);
+          const p = new THREE.Vector3(-Math.cos(decRad) * Math.sin(raRad), Math.sin(decRad), -Math.cos(decRad) * Math.cos(raRad));
+          p.applyMatrix4(sceneManager.skyGroup.matrixWorld).normalize();
+          controlsManager.camera.position.set(-p.x, -p.y, -p.z);
+          controlsManager.setFov(fov);
+          groundManager.setVisible(false);
+          console.info('[spike] camera ->', ra, dec, fov);
+        }, 1500);
+      }
+
       healpixManager.update();
 
       constellationManager = new ConstellationManager(sceneManager.skyGroup);

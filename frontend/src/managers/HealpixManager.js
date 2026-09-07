@@ -6,6 +6,7 @@ import { MeshLoader } from '@/utils/textureLoader';
 import { API_CONFIG } from '@/settings/api';
 import { createStarMaterial } from '@/utils/starShader.js';
 import { StarsMeshLoader } from '@/utils/starGeometryLoader';
+import { UserHipsTextureLoader } from '@/utils/textureLoader';
 import { LRUCache } from '@/utils/LRUCache';
 import { APP_SETTINGS } from '@/settings/appSettings';
 import * as healpix from "@hscmap/healpix";
@@ -18,6 +19,12 @@ const LABEL_CANDIDATES_PER_TILE = 500;
 
 // Сколько подписей одновременно на экране.
 const MAX_LABELS_ON_SCREEN = 10;
+
+// SPIKE APO-80: sparse user HiPS layer from the test prefix, enabled with ?mysky=1
+const SPIKE_HIPS_BASE = 'https://storage.yandexcloud.net/skymap-static-data/spike/hips';
+const SPIKE_HIPS_MAX_ORDER = 8;
+const SPIKE_PARAMS = new URLSearchParams(window.location.search);
+const SPIKE_ENABLED = SPIKE_PARAMS.has('mysky') && !SPIKE_PARAMS.has('nolayer');
 
 class HealpixTile {
     constructor(order, pix) {
@@ -67,6 +74,23 @@ class TileManager {
         this.meshLoader = new MeshLoader(this.dss_tiles);
         this.starsLoader = new StarsMeshLoader(this.stars_tiles);
 
+        // SPIKE APO-80
+        this.tileMaxOrder = APP_SETTINGS.DSS_MAX_ORDER;
+        if (SPIKE_ENABLED) {
+            fetch(`${SPIKE_HIPS_BASE}/moc.json`)
+                .then(r => r.json())
+                .then(({ orders }) => {
+                    const moc = {};
+                    for (const [k, pixes] of Object.entries(orders)) moc[Number(k)] = new Set(pixes);
+                    this.meshLoader.setUserLayer(new UserHipsTextureLoader(SPIKE_HIPS_BASE, moc, SPIKE_HIPS_MAX_ORDER));
+                    // tile meshes must go as deep as the user layer; DSS beyond its max order
+                    // falls back to parent crops through TextureLoader._getTexture
+                    this.tileMaxOrder = Math.max(APP_SETTINGS.DSS_MAX_ORDER, SPIKE_HIPS_MAX_ORDER);
+                    console.info('[spike] user HiPS layer on:', Object.fromEntries(Object.entries(moc).map(([k, s]) => [k, s.size])));
+                })
+                .catch(e => console.warn('[spike] moc load failed', e));
+        }
+
         this.rootTiles = [];
         for (let pix = 0; pix < 12; pix++) {
             const tile = new HealpixTile(0, pix);
@@ -89,7 +113,7 @@ class TileManager {
         // у DSS-снимков — только до 7. Без отдельного среза листья уходили бы на
         // order 8-9, где textureLoader выходит по DSS_MAX_ORDER, и подложка
         // переставала грузиться совсем.
-        const dssOrder = Math.min(targetOrder, APP_SETTINGS.DSS_MAX_ORDER);
+        const dssOrder = Math.min(targetOrder, this.tileMaxOrder);
 
         const distributeStarsToChildren = (stars, order) => {
             const childOrder = order + 1;

@@ -18,6 +18,12 @@ export const fragmentShader = `
     uniform sampler2D map;
     uniform vec2 mapOffset;
     uniform vec2 mapRepeat;
+    // SPIKE APO-80: user HiPS layer drawn on the same tile mesh
+    uniform sampler2D userMap;
+    uniform vec2 userOffset;
+    uniform vec2 userRepeat;
+    uniform float userOpacity;
+    uniform float hasUser;
     varying vec2 vUv;
 
     void main() {
@@ -36,6 +42,12 @@ export const fragmentShader = `
 
         vec3 gray = vec3(lum);
         vec3 color = mix(gray, tex.rgb, saturation);
+
+        // SPIKE APO-80: user photo over the (desaturated) DSS, straight alpha
+        if (hasUser > 0.5) {
+            vec4 usr = texture2D(userMap, vUv * userRepeat + userOffset);
+            color = mix(color, usr.rgb, usr.a * userOpacity);
+        }
 
         gl_FragColor = vec4(color, tex.a);
     }

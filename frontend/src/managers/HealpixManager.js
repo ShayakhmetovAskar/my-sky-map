@@ -19,6 +19,7 @@ const LABEL_CANDIDATES_PER_TILE = 500;
 // Сколько подписей одновременно на экране.
 const MAX_LABELS_ON_SCREEN = 10;
 
+
 class HealpixTile {
     constructor(order, pix) {
         this.order = order;
@@ -67,6 +68,10 @@ class TileManager {
         this.meshLoader = new MeshLoader(this.dss_tiles);
         this.starsLoader = new StarsMeshLoader(this.stars_tiles);
 
+        // Depth of the tile meshes. Raised by setUserLayer() when the My Sky layer
+        // (per-image tiles composited on the client) reaches deeper than the DSS.
+        this.tileMaxOrder = APP_SETTINGS.DSS_MAX_ORDER;
+
         this.rootTiles = [];
         for (let pix = 0; pix < 12; pix++) {
             const tile = new HealpixTile(0, pix);
@@ -89,7 +94,7 @@ class TileManager {
         // у DSS-снимков — только до 7. Без отдельного среза листья уходили бы на
         // order 8-9, где textureLoader выходит по DSS_MAX_ORDER, и подложка
         // переставала грузиться совсем.
-        const dssOrder = Math.min(targetOrder, APP_SETTINGS.DSS_MAX_ORDER);
+        const dssOrder = Math.min(targetOrder, this.tileMaxOrder);
 
         const distributeStarsToChildren = (stars, order) => {
             const childOrder = order + 1;
@@ -230,6 +235,19 @@ export default class HealpixManager {
         // Placeholder for update logic if needed
     }
 
+    /** Catalog stars on/off (points + their labels). */
+    setStarsVisible(visible) {
+        this.starsVisible = visible;
+        this.tileManager.starsLoader.starMaterial.visible = visible;
+    }
+
+    /** Attach (or detach, with `null`) the My Sky layer; tile meshes then go as deep as its
+     *  max order — DSS beyond DSS_MAX_ORDER falls back to parent crops in TextureLoader._getTexture. */
+    setUserLayer(loader, maxOrder) {
+        this.tileManager.meshLoader.setUserLayer(loader);
+        this.tileManager.tileMaxOrder = Math.max(APP_SETTINGS.DSS_MAX_ORDER, maxOrder || 0);
+    }
+
     async setOrder(camera) {
         // Пороги хвоста (7/8/9) подобраны так, чтобы в кадр попадало примерно
         // столько же тайлов, сколько на уже работающих уровнях (~36): площадь
@@ -260,6 +278,6 @@ export default class HealpixManager {
 
         // Используем новый умный метод обновления лейблов
         const brightestStars = this.tileManager.brightestStars || [];
-        this.labelManager.updateStarLabels(brightestStars, camera);
+        this.labelManager.updateStarLabels(this.starsVisible === false ? [] : brightestStars, camera);
     }
 }

@@ -17,6 +17,11 @@ spec:
         - name: solver-api
           image: cr.yandex/crpvlpmjteb6egojpc4g/skymap-solver:latest
           imagePullPolicy: Always
+          # Forwarded to `uvicorn` by entrypoint.sh (ROLE=api). Access logs would record
+          # the full request path, and a share link carries its capability token in the
+          # path (`/api/v1/public/sky/{token}`) — logging it hands anyone with log access
+          # a working link to every shared collection (APO-88, design §5).
+          args: ["--no-access-log"]
           ports:
             - containerPort: 8000
           envFrom:
@@ -50,6 +55,25 @@ spec:
                 secretKeyRef:
                   name: skymap-secrets
                   key: MINIO_SECRET_KEY
+            # Write key for the public HiPS bucket (APO-81). The worker writes the tiles;
+            # the API needs the same key to purge img/{secret}/ when an image is deleted
+            # (APO-87). Placeholder reference only — the owner creates the Secret out of
+            # band, it is never stored in the repo:
+            #   kubectl -n skymap create secret generic skymap-hips-secrets \
+            #     --from-literal=HIPS_ACCESS_KEY=... --from-literal=HIPS_SECRET_KEY=...
+            # `optional` so the pod still starts without it (tiling then reports hips_error).
+            - name: HIPS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-hips-secrets
+                  key: HIPS_ACCESS_KEY
+                  optional: true
+            - name: HIPS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-hips-secrets
+                  key: HIPS_SECRET_KEY
+                  optional: true
           readinessProbe:
             httpGet:
               path: /healthcheck

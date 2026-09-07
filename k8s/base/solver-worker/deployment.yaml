@@ -50,6 +50,23 @@ spec:
                 secretKeyRef:
                   name: skymap-secrets
                   key: MINIO_SECRET_KEY
+            # Write key for the public HiPS bucket (APO-81). Placeholder reference only —
+            # the owner creates the Secret out of band, it is not stored in the repo:
+            #   kubectl -n skymap create secret generic skymap-hips-secrets \
+            #     --from-literal=HIPS_ACCESS_KEY=... --from-literal=HIPS_SECRET_KEY=...
+            # `optional` so the pod still starts without it (tiling then reports hips_error).
+            - name: HIPS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-hips-secrets
+                  key: HIPS_ACCESS_KEY
+                  optional: true
+            - name: HIPS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: skymap-hips-secrets
+                  key: HIPS_SECRET_KEY
+                  optional: true
             - name: ASTROMETRY_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -65,10 +82,22 @@ spec:
               command: ["python3", "-c", "import os; os.stat('/proc/1/status')"]
             initialDelaySeconds: 5
             periodSeconds: 10
+          # Sized for the tiling step (APO-83), not for the solve: a task holds its slot
+          # through both, and MAX_CONCURRENT is 3 (worker/main.py).
+          #   memory — `worker/hips.py:load_image` decodes the image at full resolution
+          #   before `downscale`: a 6000x4000 JPEG is ~72 MB as uint8 plus PIL's decode
+          #   buffer, and a 4000x3000 FITS goes through `_stretch` with float32 copies
+          #   (~130 MB+). Three of those at once did not fit in 512Mi, and an OOMKill
+          #   during tiling is the worst failure mode there is — the pyramid is already
+          #   half uploaded.
+          #   cpu — 500m stretched the measured 1-3 min per image (2 vCPU) to 6-20 min at
+          #   3-way concurrency, i.e. past ZOMBIE_TIMEOUT. The requests are what the pod
+          #   actually needs under load, so the scheduler cannot pack it onto a node that
+          #   has nothing left to give it.
           resources:
             requests:
-              cpu: 25m
-              memory: 64Mi
-            limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 768Mi
+            limits:
+              cpu: 2
+              memory: 2Gi

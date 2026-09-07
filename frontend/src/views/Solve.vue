@@ -69,8 +69,18 @@
                 <p class="processing-sub">This may take a few minutes</p>
             </div>
 
-            <div v-if="currentTask.status === 'completed'" class="result">
+            <div v-if="currentTask.status === 'completed' || currentTask.status === 'tiling'" class="result">
                 <h2 class="result-title">Solution Found</h2>
+
+                <!-- tiling: the solve is done, the worker is still cutting this image into sky tiles -->
+                <div v-if="currentTask.status === 'tiling'" class="tiling-state">
+                    <span class="spinner"></span>
+                    <span>Building your sky… adding this image to the sky map</span>
+                </div>
+                <div v-else-if="parsedResult?.hips_error" class="tiling-warning">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <span>Sky layer could not be built for this image. The solution itself is fine.</span>
+                </div>
 
                 <div class="result-cards" v-if="parsedResult">
                     <div class="result-card" v-if="parsedResult.center_ra != null && parsedResult.center_dec != null">
@@ -147,7 +157,7 @@
         </div>
     </div>
 
-    <div v-if="currentTask?.status === 'completed'" class="scene-section" :class="{ fullscreen: sceneFullscreen }">
+    <div v-if="currentTask?.status === 'completed' || currentTask?.status === 'tiling'" class="scene-section" :class="{ fullscreen: sceneFullscreen }">
         <div class="scene-header">
             <h3>Sky View</h3>
             <button class="fullscreen-btn" @click="toggleFullscreen" :title="sceneFullscreen ? 'Exit fullscreen' : 'Fullscreen'">
@@ -191,6 +201,7 @@ const activeStep = computed(() => {
     if (currentTask.value) {
         const s = currentTask.value.status
         if (s === 'completed') return 5
+        if (s === 'tiling') return 4
         if (s === 'processing' || s === 'pending') return 3
         if (s === 'failed') return 0
     }
@@ -391,7 +402,7 @@ onMounted(async () => {
         isLoading.value = true
         try {
             const data = await fetchTaskStatus(taskId)
-            if (['pending', 'processing'].includes(data.status)) {
+            if (['pending', 'processing', 'tiling'].includes(data.status)) {
                 startStatusPolling(taskId)
             }
         } catch (err) {
@@ -427,7 +438,7 @@ watch(() => route.params.taskId, async (newTaskId) => {
         try {
             const data = await fetchTaskStatus(newTaskId)
             if (route.params.taskId !== newTaskId) return
-            if (['pending', 'processing'].includes(data.status)) {
+            if (['pending', 'processing', 'tiling'].includes(data.status)) {
                 startStatusPolling(newTaskId)
             }
         } catch (err) {
@@ -769,6 +780,37 @@ watch(() => route.params.taskId, async (newTaskId) => {
     color: #42b983;
     font-size: 1.2em;
     margin-bottom: 1.2rem;
+}
+
+.tiling-state,
+.tiling-warning {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: -0.6rem 0 1.2rem;
+    padding: 0.55rem 0.8rem;
+    border-radius: 8px;
+    font-size: 0.9em;
+}
+
+.tiling-state {
+    background: rgba(66, 185, 131, 0.08);
+    color: #9ad9bf;
+}
+
+.tiling-state .spinner {
+    border-color: rgba(66, 185, 131, 0.25);
+    border-top-color: #42b983;
+    flex-shrink: 0;
+}
+
+.tiling-warning {
+    background: rgba(245, 158, 11, 0.1);
+    color: #fbbf24;
+}
+
+.tiling-warning svg {
+    flex-shrink: 0;
 }
 
 .result-cards {

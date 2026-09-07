@@ -16,6 +16,10 @@ class TextureLoader {
         this.failedUrls = new LRUCache(100);
 
         this.baseUrl = API_CONFIG.DSS_SURVEYS.baseUrl;
+        this.maxOrder = APP_SETTINGS.DSS_MAX_ORDER; // per-instance: a layer may be shallower/deeper
+        // DSS tiles are decoded sRGB->linear on sampling and the dssTile shader never
+        // re-encodes, which is what the DSS colour curve was tuned against.
+        this.textureColorSpace = THREE.SRGBColorSpace;
         this.maxConcurrent = maxConcurrent;
         this.currentCount = 0;
         this.rootTextures = []
@@ -162,8 +166,8 @@ class TextureLoader {
 
 
     load(norder, pix) {
-        // Проверяем максимальный order для DSS изображений
-        if (norder > APP_SETTINGS.DSS_MAX_ORDER) {
+        // Проверяем максимальный order для этого слоя
+        if (norder > this.maxOrder) {
             return; // Не загружаем изображения выше максимального order
         }
         
@@ -192,7 +196,7 @@ class TextureLoader {
             (texture) => {
                 // Проверяем, что изображение действительно загружено
                 if (texture.image && texture.image.complete) {
-                    texture.colorSpace = THREE.SRGBColorSpace;
+                    texture.colorSpace = this.textureColorSpace;
                     texture.minFilter = THREE.LinearMipmapLinearFilter;
                     texture.magFilter = THREE.LinearFilter;
                     texture.wrapS = THREE.ClampToEdgeWrapping;
@@ -224,11 +228,19 @@ class TextureLoader {
 }
 
 
+// 1x1 transparent placeholder so the sampler uniform is never null
+const EMPTY_USER_TEX = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
+EMPTY_USER_TEX.needsUpdate = true;
+
 export class MeshLoader {
     constructor(group) {
         this.textureLoader = new TextureLoader();
         this.meshCache = new LRUCache(100);
         this.group = group;
+        // My Sky layer (see utils/userHipsComposite.js); null until Scene attaches one.
+        this.userLoader = null;
+        this.userOpacity = 1.0;
+        this.split = { enabled: false, x: 0 };
         this.meshCache.onEvict = (key, mesh) => {
             this.group.remove(mesh);
 
@@ -291,6 +303,54 @@ export class MeshLoader {
         this.createMeshWithTexture(norder, pix);
     }
 
+    /** Attach the My Sky layer, or detach it with `null`. */
+    setUserLayer(loader) {
+        this.userLoader = loader;
+        this.refreshUserLayer();
+    }
+
+    /** Re-resolve the user layer on every mesh (after the image list or the enabled set changed). */
+    refreshUserLayer() {
+        for (const [key, mesh] of this.meshCache) {
+            const [order, pix] = key.split('/').map(Number);
+            this._applyUserTexture(mesh, order, pix);
+        }
+    }
+
+    /** Compare slider (x in device pixels): right of it the user layer is not drawn. */
+    setSplit(enabled, x) {
+        this.split = { enabled, x };
+        for (const [, mesh] of this.meshCache) {
+            const u = mesh.material?.uniforms;
+            if (u?.splitEnabled) { u.splitEnabled.value = enabled ? 1.0 : 0.0; u.splitX.value = x; }
+        }
+    }
+
+    /** Opacity 0 hides the layer without touching the tiles. */
+    setUserOpacity(value) {
+        this.userOpacity = value;
+        for (const [, mesh] of this.meshCache) {
+            const u = mesh.material?.uniforms;
+            if (u?.userOpacity) u.userOpacity.value = value;
+        }
+    }
+
+    _applyUserTexture(mesh, order, pix) {
+        const u = mesh.material.uniforms;
+        const tex = this.userLoader ? this.userLoader.getTexture(order, pix) : null;
+        if (!tex) {
+            // back to the placeholder, so update() keeps polling this cell once a photo covers it
+            u.userMap.value = EMPTY_USER_TEX;
+            u.hasUser.value = 0.0;
+            return;
+        }
+        u.userMap.value = tex;
+        u.userOffset.value.set(tex.offset.x, tex.offset.y);
+        u.userRepeat.value.set(tex.repeat.x, tex.repeat.y);
+        u.userOpacity.value = this.userOpacity;
+        u.hasUser.value = 1.0;
+    }
+
     update(currentTiles) {
         for (const [key, mesh] of this.meshCache) {
             mesh.visible = false;
@@ -311,6 +371,10 @@ export class MeshLoader {
                     mesh.material.uniforms.mapOffset.value.set(texture.offset.x, texture.offset.y);
                     mesh.material.uniforms.mapRepeat.value.set(texture.repeat.x, texture.repeat.y);
                 }
+            }
+            // Refresh the user layer until every contributing tile is the real one
+            if (mesh && this.userLoader && !(mesh.material.uniforms.userMap.value.userData === true)) {
+                this._applyUserTexture(mesh, order, pix);
             }
 
             mesh = this.meshCache.get(key);
@@ -364,6 +428,14 @@ export class MeshLoader {
                 map: { value: texture },
                 mapOffset: { value: new THREE.Vector2(texture.offset.x, texture.offset.y) },
                 mapRepeat: { value: new THREE.Vector2(texture.repeat.x, texture.repeat.y) },
+                // My Sky layer
+                userMap: { value: EMPTY_USER_TEX },
+                userOffset: { value: new THREE.Vector2(0, 0) },
+                userRepeat: { value: new THREE.Vector2(1, 1) },
+                userOpacity: { value: this.userOpacity },
+                hasUser: { value: 0.0 },
+                splitEnabled: { value: this.split.enabled ? 1.0 : 0.0 },
+                splitX: { value: this.split.x },
             },
             vertexShader: dssTileVertex,
             fragmentShader: dssTileFragment,
@@ -372,7 +444,8 @@ export class MeshLoader {
         });
 
         const mesh = new THREE.Mesh(geometry, material);
-        
+        this._applyUserTexture(mesh, norder, pix);
+
         // Создаем границы тайла если флаг включен
         if (debugSettings.get('showTileBounds')) {
             const boundsGeometry = createTileBoundsGeometry(norder, pix);

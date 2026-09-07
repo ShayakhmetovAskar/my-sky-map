@@ -119,6 +119,7 @@ const filters = [
   { label: 'All', value: 'all' },
   { label: 'Completed', value: 'completed' },
   { label: 'Processing', value: 'processing' },
+  { label: 'Tiling', value: 'tiling' },
   { label: 'Pending', value: 'pending' },
   { label: 'Failed', value: 'failed' },
 ]
@@ -137,7 +138,7 @@ const filteredSubmissions = computed(() => {
 })
 
 const hasActiveSubmissions = computed(() => {
-  return submissions.value.some(s => s.status === 'pending' || s.status === 'processing')
+  return submissions.value.some(s => ['pending', 'processing', 'tiling'].includes(s.status))
 })
 
 async function fetchSubmissions(offset = 0) {
@@ -428,6 +429,7 @@ function formatTime(iso) {
 
 .badge-completed { background: rgba(66, 185, 131, 0.15); color: #42b983; }
 .badge-processing { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+.badge-tiling { background: rgba(20, 184, 166, 0.15); color: #2dd4bf; }
 .badge-pending { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
 .badge-uploaded { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
 .badge-failed { background: rgba(244, 67, 54, 0.15); color: #f87171; }

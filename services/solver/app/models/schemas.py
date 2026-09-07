@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, Field, confloat, conint
+from pydantic import AfterValidator, AwareDatetime, BaseModel, Field, StringConstraints, confloat, conint, field_validator
 
 
 # --- Enums ---
@@ -21,6 +21,7 @@ class SubmissionStatus(str, Enum):
     pending = "pending"
     uploaded = "uploaded"
     processing = "processing"
+    tiling = "tiling"  # solved, the worker is cutting the image into sky tiles
     completed = "completed"
     failed = "failed"
 
@@ -28,6 +29,7 @@ class SubmissionStatus(str, Enum):
 class TaskStatus(str, Enum):
     pending = "pending"
     processing = "processing"
+    tiling = "tiling"  # solved, the worker is cutting the image into sky tiles
     completed = "completed"
     failed = "failed"
     cancelled = "cancelled"
@@ -112,9 +114,65 @@ class TaskDetailed(TaskSummary):
         None,
         description="Solver result. Keys: center_ra, center_dec, pixel_scale, orientation, "
                     "field_of_view, original_image_key, annotated_image_key, wcs_key, mesh_json_key, "
-                    "astrometry_job_url. URL keys are generated on read.",
+                    "astrometry_job_url, hips (kmax, tiles, moc, base, thumb, seconds), corners, "
+                    "hips_error. URL keys are generated on read.",
     )
     error: Optional[TaskError] = Field(None, description="Present when status is failed")
+
+
+# --- Collection schemas (My Sky) ---
+
+MAX_COLLECTIONS_PER_USER = 50
+MAX_COLLECTION_ITEMS = 200
+
+CollectionTitle = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
+
+
+def _unique_task_ids(items: list[UUID]) -> list[UUID]:
+    if len(set(items)) != len(items):
+        raise ValueError("items must not contain duplicate task ids")
+    return items
+
+
+CollectionItems = Annotated[
+    list[UUID],
+    Field(max_length=MAX_COLLECTION_ITEMS, description="Full ordered list of task ids; position = array index"),
+    AfterValidator(_unique_task_ids),
+]
+
+
+class CreateCollectionRequest(BaseModel):
+    title: CollectionTitle
+
+
+class UpdateCollectionRequest(BaseModel):
+    title: Optional[CollectionTitle] = None
+    items: Optional[CollectionItems] = None
+
+
+class CollectionResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: UUID
+    title: str
+    items: list[UUID] = Field(default_factory=list, description="Task ids ordered by position")
+    share_token: Optional[str] = None
+    expires_at: Optional[AwareDatetime] = None
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+
+    @field_validator("items", mode="before")
+    @classmethod
+    def _items_from_orm(cls, value):
+        # ORM relationship yields CollectionItem rows (already ordered by position)
+        return [getattr(item, "task_id", item) for item in value]
+
+
+class ShareResponse(BaseModel):
+    """`POST /me/collections/{id}/share`. Only the token: the frontend builds the URL
+    from `location.origin`, so the API never has to know the public hostname."""
+
+    token: str = Field(..., description="Capability token; the share URL is {origin}/s/{token}")
 
 
 # --- Pagination ---

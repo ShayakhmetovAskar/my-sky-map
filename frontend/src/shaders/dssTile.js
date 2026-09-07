@@ -18,6 +18,16 @@ export const fragmentShader = `
     uniform sampler2D map;
     uniform vec2 mapOffset;
     uniform vec2 mapRepeat;
+    // My Sky layer: the user's photos are drawn on the same tile mesh as the DSS,
+    // so the layer costs no extra draw calls.
+    uniform sampler2D userMap;
+    uniform vec2 userOffset;
+    uniform vec2 userRepeat;
+    uniform float userOpacity;
+    uniform float hasUser;
+    // Compare slider: right of splitX (device px) the photo is hidden, DSS shows through
+    uniform float splitEnabled;
+    uniform float splitX;
     varying vec2 vUv;
 
     void main() {
@@ -36,6 +46,14 @@ export const fragmentShader = `
 
         vec3 gray = vec3(lum);
         vec3 color = mix(gray, tex.rgb, saturation);
+
+        // User photo over the (desaturated) DSS, straight (non-premultiplied) alpha
+        if (hasUser > 0.5) {
+            vec4 usr = texture2D(userMap, vUv * userRepeat + userOffset);
+            float a = usr.a * userOpacity;
+            if (splitEnabled > 0.5 && gl_FragCoord.x > splitX) a = 0.0;
+            color = mix(color, usr.rgb, a);
+        }
 
         gl_FragColor = vec4(color, tex.a);
     }

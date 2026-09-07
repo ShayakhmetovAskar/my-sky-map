@@ -7,11 +7,11 @@ logger = logging.getLogger(__name__)
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..dependencies import get_current_user, get_db, get_storage
+from ..dependencies import get_current_user, get_db, get_hips_storage, get_storage
 from ..models.db import Submission
 from ..models.schemas import (
     CreateSubmissionRequest,
@@ -20,9 +20,14 @@ from ..models.schemas import (
     SubmissionDetailed,
     SubmissionSummary,
 )
+from ..services.hips_storage import HipsStorage
+from ..services.image_tiles import purge_submission_objects, redact_secrets, tile_bases
 from ..services.storage import StorageService
 
 router = APIRouter(prefix="/submissions", tags=["Submissions"])
+
+# Statuses in which the worker still owns the submission's objects and keeps writing them.
+IN_FLIGHT_TASK_STATUSES = ("pending", "processing", "tiling")
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=SubmissionCreatedResponse)
@@ -115,14 +120,61 @@ async def delete_submission(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     storage: StorageService = Depends(get_storage),
+    hips_storage: HipsStorage = Depends(get_hips_storage),
 ):
-    query = select(Submission).where(Submission.id == submission_id, Submission.user_id == user_id)
+    query = (
+        select(Submission)
+        .options(selectinload(Submission.tasks))
+        .where(Submission.id == submission_id, Submission.user_id == user_id)
+    )
     submission = (await db.execute(query)).scalar_one_or_none()
     if not submission:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found")
 
-    storage.delete_object(submission.object_key)
-    await db.delete(submission)
+    # Nothing may be deleted while the worker still holds the submission. A solve that
+    # is running re-uploads `annotated.png`/`wcs.fits`/`mesh.json` into the private
+    # prefix right after the purge emptied it, and a task in `tiling` goes on writing a
+    # whole `img/{secret}/` pyramid into the *public* bucket — its final UPDATE then
+    # matches no row, so the secret is never persisted and nothing can ever find those
+    # tiles again. Refuse instead, before a single object is touched.
+    if any(task.status in IN_FLIGHT_TASK_STATUSES for task in submission.tasks):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Submission is still being processed",
+        )
+
+    # Read what the purge needs, then end the read transaction: the round trips below
+    # are one list + one delete per prefix and must not hold a pooled connection `idle
+    # in transaction` (that blocks autovacuum on `tasks`). Plain strings survive it.
+    bases = [base for task in submission.tasks for base in tile_bases(task.result)]
+    await db.commit()
+
+    # Objects first, synchronously, and only then the row (design §3): the row holds
+    # the only pointer to the image's tile secret, and those tiles are readable by
+    # anyone who has the link — committing first would leak them permanently.
+    try:
+        removed = await purge_submission_objects(
+            user_id,
+            submission_id,
+            bases,
+            storage=storage,
+            hips_storage=hips_storage,
+        )
+    except Exception as e:
+        logger.error("Purge of submission %s failed: %s", submission_id, redact_secrets(str(e)))
+        # `from None`: the storage error quotes the object key, i.e. the tile secret —
+        # it stays in the redacted log line above and out of any chained traceback.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Storage is unavailable, submission was not deleted",
+        ) from None
+
+    logger.info("Purged %s objects of submission %s", removed, submission_id)
+    # A statement, not `db.delete(submission)`: the row was read in a transaction that
+    # is now closed. `tasks` (and through them `collection_items`) go by ON DELETE CASCADE.
+    await db.execute(
+        delete(Submission).where(Submission.id == submission_id, Submission.user_id == user_id)
+    )
     await db.commit()
 
 

@@ -1,12 +1,12 @@
 <template>
   <div class="three-container" ref="threeContainer"></div>
 
-  <div v-if="!embedded" id="hud">
+  <div v-if="!embedded && !shared" id="hud">
     <pre id="fovValue" ref="hudRef">HUD ...</pre>
   </div>
 
-  <!-- Side Menu -->
-  <SideMenu v-if="!embedded"
+  <!-- Side Menu — hidden on `/s/`: it links into the owner's private sections -->
+  <SideMenu v-if="!embedded && !shared"
     :latitude="observerLat"
     :longitude="observerLon"
     :terrain="terrainOn"
@@ -22,8 +22,46 @@
     @max-fps-changed="onMaxFpsChanged"
   />
 
-  <!-- Bottom Bar: time + ground + tracking -->
-  <TimeSelectorV2 v-if="!embedded" ref="timeSelectorRef"
+  <!-- My Sky: the signed-in user's solved images (GET /me/sky), or, on `/s/:token`,
+       a shared collection in read-only mode -->
+  <MySkyPanel v-if="!embedded && mySkyEnabled"
+    ref="mySkyPanelRef"
+    :images="mySkyImages"
+    :read-only="shared"
+    :title="shared ? (sharedTitle || 'Shared sky') : 'My Sky'"
+    :signed-in="isAuthenticated"
+    :selected-id="mySkySelectedId"
+    :layer-on="mySkyLayerOn"
+    :outlines-on="mySkyOutlinesOn"
+    :compare-on="mySkyCompareOn"
+    :labels-on="mySkyLabelsOn"
+    :stars-on="mySkyStarsOn"
+    :hover-id="mySkyHoverId"
+    :hidden-ids="mySkyHiddenIds"
+    :opacity="mySkyOpacity"
+    @fly="onMySkyFly"
+    @hover="onMySkyHover"
+    @select="onMySkySelect"
+    @toggle-layer="onMySkyToggle"
+    @toggle-outlines="onMySkyOutlines"
+    @toggle-compare="onMySkyCompare"
+    @toggle-labels="onMySkyLabels"
+    @toggle-stars="onMySkyStars"
+    @toggle-visible="onMySkyToggleVisible"
+    @opacity="onMySkyOpacity"
+    @collection-filter="onMySkyCollectionFilter"
+    @reload-images="onMySkyReloadRequest"
+  />
+  <!-- My Sky outline labels (DOM, projected each frame) -->
+  <div ref="mySkyLabelsRef" class="mysky-labels"></div>
+  <!-- My Sky compare slider line -->
+  <div v-if="mySkyEnabled && mySkyCompareOn" class="compare-line" :style="{ left: mySkyCompareX + 'px' }" @pointerdown="onCompareDown" @wheel.prevent="onCompareWheel">
+    <div class="compare-handle"><span>my photo</span><span class="compare-sep">⇔</span><span>DSS</span></div>
+  </div>
+
+  <!-- Bottom Bar: time + ground + tracking. Off on `/s/`: a viewer is looking at
+       someone else's photos, not at their own horizon, and the sky stays still. -->
+  <TimeSelectorV2 v-if="!embedded && !shared" ref="timeSelectorRef"
     :ground="terrainOn"
     :tracking="isTracking"
     :grid="gridOn"
@@ -53,6 +91,11 @@
   <!-- Grid Labels -->
   <div v-if="!embedded" ref="gridLabelsRef" class="grid-labels"></div>
 
+  <!-- Title of the shared collection, in place of the hidden app chrome -->
+  <div v-if="shared" class="shared-brand">
+    <router-link to="/" class="shared-brand-link">Sky&nbsp;Map</router-link>
+  </div>
+
   <!-- Cursor Tooltip -->
   <div v-if="cursorTooltipVisible" class="cursor-tooltip" :style="{ left: cursorX + 'px', top: cursorY + 'px' }">
     {{ cursorCoords }}
@@ -60,13 +103,13 @@
   </div>
 
   <!-- Debug Panel -->
-  <DebugPanel v-if="!embedded" />
+  <DebugPanel v-if="!embedded && !shared" />
 
 
 </template>
 
 <script>
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import * as THREE from 'three';
 import SceneManager from '@/managers/SceneManager.js';
 import ControlsManager from '@/managers/ControlsManager';
@@ -82,6 +125,12 @@ import SideMenu from '@/components/SideMenu.vue';
 import DebugPanel from '@/components/DebugPanel.vue';
 import HealpixManager from '@/managers/HealpixManager';
 import OverlayManager from '@/managers/OverlayManager';
+import FootprintManager from '@/managers/FootprintManager';
+import { fitAllView } from '@/utils/skyFit';
+import { UserHipsCompositeLoader } from '@/utils/userHipsComposite';
+import MySkyPanel from '@/components/MySkyPanel.vue';
+import apiClient from '@/utils/apiClient';
+import { useAuth } from '@/composables/useAuth';
 import { getWorldUp, equatorial_to_cartesian, cartesian_to_equatorial, isPoleOnScreen, equatorialToHorizontal, getZenithRaDecFast, formatDMS, formatHMS, angularDistance } from '@/utils/algos';
 import debugSettings from '@/settings/debugSettings';
 
@@ -91,15 +140,31 @@ export default {
     TimeSelectorV2,
     SideMenu,
     DebugPanel,
+    MySkyPanel,
   },
   props: {
     taskId: {
       type: [String],
-      required: true
+      default: ''
     },
     embedded: {
       type: Boolean,
       default: false
+    },
+    /** Read-only viewer for a shared collection (`/s/:token`): no auth, no owner controls. */
+    shared: {
+      type: Boolean,
+      default: false
+    },
+    /** Images of the shared collection, already fetched by PublicSky.vue. */
+    sharedImages: {
+      type: Array,
+      default: () => []
+    },
+    /** Collection title, shown in the panel header instead of "My Sky". */
+    sharedTitle: {
+      type: String,
+      default: ''
     }
   },
   setup(props) {
@@ -132,6 +197,60 @@ export default {
     // Angular distance measurement
     const angDistPoint1 = ref(null); // { raDeg, decDeg }
     const angDistResult = ref('');
+
+    // ── My Sky: the user's own solved images as a layer over the DSS ─────────
+    // Data comes from `GET /me/sky`; the panel exists only for a signed-in user.
+    // On `/s/:token` the same machinery renders someone else's collection, handed in
+    // through `sharedImages` — nothing is fetched from `/me/*` and nothing is stored.
+    const { isAuthenticated, getToken } = useAuth();
+    const mySkyLoaded = ref(false);
+    const mySkyEnabled = computed(() => mySkyLoaded.value && (props.shared || isAuthenticated.value));
+
+    // A viewer's toggles on `/s/` must not land in the owner's own keys — this browser
+    // may well be the owner's. In shared mode every preference stays in memory.
+    const prefRead = (key) => (props.shared ? null : localStorage.getItem(key));
+    const prefWrite = (key, value) => { if (!props.shared) localStorage.setItem(key, value); };
+
+    const mySkyImages = ref([]);
+    const mySkySelectedId = ref(null);
+    const mySkyLayerOn = ref(true);
+    const mySkyOutlinesOn = ref(prefRead('mySkyOutlines') === '1');
+    const mySkyOpacity = ref(1);
+    const mySkyPanelRef = ref(null);
+    const mySkyLabelsRef = ref(null);
+    const mySkyHoverId = ref(null);        // image under the mouse on the sky
+    const mySkyCompareOn = ref(false);
+    const mySkyLabelsOn = ref(prefRead('mySkyLabels') !== '0');
+    const mySkyHiddenIds = ref(JSON.parse(prefRead('mySkyHidden') || '[]'));
+    const mySkyStarsOn = ref(prefRead('mySkyStars') !== '0');
+    const onMySkyStars = (v) => {
+      mySkyStarsOn.value = v;
+      prefWrite('mySkyStars', v ? '1' : '0');
+      healpixManager?.setStarsVisible(v);
+    };
+    // The panel's collection dropdown narrows the layer, the outlines and the hit test
+    // to one collection; `null` means "all photos" (APO-89, design §6).
+    const mySkyCollectionIds = ref(null);
+    /** Images that can actually be drawn: tiled (`ready`), in the active collection and
+     *  not hidden by the eye. `tiling` ones have no moc/base yet — they only show in the
+     *  list, with a spinner. */
+    const mySkyVisible = () => mySkyImages.value
+        .filter(im => im.status === 'ready'
+            && !mySkyHiddenIds.value.includes(im.id)
+            && (!mySkyCollectionIds.value || mySkyCollectionIds.value.includes(im.id)));
+    /** Images an outline and a label may be drawn for — the same filters as
+     *  `mySkyVisible()` but `tiling` ones included: they already carry ra/dec/fov
+     *  (usually corners) from the solve, so the viewer can see where the photo will
+     *  land while its tiles are still being built (design §7). */
+    const mySkyOutlineable = () => mySkyImages.value
+        .filter(im => !mySkyHiddenIds.value.includes(im.id)
+            && (!mySkyCollectionIds.value || mySkyCollectionIds.value.includes(im.id)));
+    const mySkyCompareX = ref(Math.round(320 + (window.innerWidth - 320) / 2));
+    let footprintManager = null;
+    let userLayer = null; // UserHipsCompositeLoader
+    let _compareDragging = false;
+    let _lastUrlState = '';
+    let _lastUrlWrite = 0;
 
     let sceneManager = null;
     let updateStarsInterval = null;
@@ -175,11 +294,16 @@ export default {
       sceneManager.setSkyNorth(observer.longitude, observer.latitude);
     };
 
+    /** Single owner of the ground state: the mesh and the ref that SideMenu /
+     *  TimeSelectorV2 render must never drift apart. */
+    const setTerrain = (visible) => {
+      groundManager?.setVisible(visible);
+      terrainOn.value = visible;
+    };
+
     const onTerrainToggle = () => {
       if (groundManager && groundManager.groundMesh) {
-        const newVisible = !groundManager.groundMesh.visible;
-        groundManager.setVisible(newVisible);
-        terrainOn.value = newVisible;
+        setTerrain(!groundManager.groundMesh.visible);
       }
     };
 
@@ -238,6 +362,238 @@ export default {
         controlsManager.unlockTarget();
       }
     };
+
+    // panel → scene
+    const onMySkyFly = (img) => {
+      if (!controlsManager || !img) return;
+      // The target may be below the horizon right now — the ground would hide it.
+      // Set both halves of the state instead of calling onTerrainToggle(): that one
+      // derives the new value from the mesh, so it would turn the ground back *on*
+      // whenever something else had already hidden it (a task overlay, `/s/`).
+      if (terrainOn.value) setTerrain(false);
+      controlsManager.flyTo(img.ra, img.dec, Math.max(0.05, img.fov * 1.3));
+    };
+    const onMySkySelect = (img) => {
+      mySkySelectedId.value = img ? img.id : null;
+      footprintManager?.setSelected(img || null);
+    };
+    const onMySkyHover = (img) => {
+      footprintManager?.setHover(img && img.id !== mySkySelectedId.value ? img : null);
+    };
+    const applyMySkyOpacity = () => {
+      healpixManager?.tileManager?.meshLoader?.setUserOpacity(mySkyLayerOn.value ? mySkyOpacity.value : 0);
+    };
+    const onMySkyToggle = (v) => { mySkyLayerOn.value = v; applyMySkyOpacity(); };
+
+    /** Image whose footprint contains (ra, dec); the smallest field wins when nested. */
+    const mySkyImageAt = (raDeg, decDeg) => mySkyVisible()
+      .map(im => ({ im, dist: angularDistance(im.ra, im.dec, raDeg, decDeg) }))
+      .filter(x => x.dist < x.im.fov / 2)
+      .sort((a, b) => a.im.fov - b.im.fov)[0]?.im || null;
+
+    const applyMySkySplit = () => {
+      healpixManager?.tileManager?.meshLoader?.setSplit(mySkyCompareOn.value, mySkyCompareX.value * window.devicePixelRatio);
+    };
+    const onMySkyCompare = (v) => { mySkyCompareOn.value = v; applyMySkySplit(); };
+    const onCompareDown = (e) => { _compareDragging = true; e.preventDefault(); };
+    const onCompareMove = (e) => {
+      if (!_compareDragging) return;
+      mySkyCompareX.value = Math.max(0, Math.min(window.innerWidth, e.clientX));
+      applyMySkySplit();
+    };
+    const onCompareUp = () => { _compareDragging = false; };
+    const onCompareWheel = (e) => { sceneManager?.renderer?.domElement?.dispatchEvent(new WheelEvent('wheel', e)); };
+
+    /** ?ra=&dec=&fov= mirrors the view; ?img=<id> flies to an image. Written with replaceState, no navigation. */
+    const syncUrlFromCamera = (now) => {
+      if (!controlsManager || now - _lastUrlWrite < 400) return;
+      const c = controlsManager.getCurrentCameraViewCoordinates();
+      if (!c) return;
+      const state = `${c.ra_deg.toFixed(4)},${c.dec_deg.toFixed(4)},${controlsManager.currentFov.toFixed(3)}`;
+      if (state === _lastUrlState) return;
+      _lastUrlState = state; _lastUrlWrite = now;
+      const params = new URLSearchParams(window.location.search);
+      params.set('ra', c.ra_deg.toFixed(4)); params.set('dec', c.dec_deg.toFixed(4)); params.set('fov', controlsManager.currentFov.toFixed(3));
+      params.delete('img');
+      history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+    };
+    const applyMySkyOutlines = () => {
+      footprintManager?.setAll(mySkyOutlinesOn.value ? mySkyOutlineable() : null);
+      footprintManager?.setLabels(mySkyLabelsOn.value ? mySkyOutlineable() : null);
+    };
+    const applyMySkyHidden = () => {
+      if (!userLayer) return;
+      userLayer.setEnabled(mySkyVisible().map(im => im.id));
+      healpixManager?.tileManager?.meshLoader?.refreshUserLayer();
+    };
+    const onMySkyToggleVisible = (img, currentlyHidden) => {
+      mySkyHiddenIds.value = currentlyHidden
+        ? mySkyHiddenIds.value.filter(id => id !== img.id)
+        : [...mySkyHiddenIds.value, img.id];
+      prefWrite('mySkyHidden', JSON.stringify(mySkyHiddenIds.value));
+      if (!currentlyHidden && mySkySelectedId.value === img.id) onMySkySelect(null);
+      applyMySkyHidden();
+      applyMySkyOutlines();
+    };
+    const onMySkyLabels = (v) => {
+      mySkyLabelsOn.value = v;
+      prefWrite('mySkyLabels', v ? '1' : '0');
+      applyMySkyOutlines();
+    };
+    const onMySkyOutlines = (v) => {
+      mySkyOutlinesOn.value = v;
+      prefWrite('mySkyOutlines', v ? '1' : '0');
+      applyMySkyOutlines();
+    };
+    const onMySkyOpacity = (v) => { mySkyOpacity.value = v; applyMySkyOpacity(); };
+    /** The panel picked a collection (`null` = all photos): the sky follows the list. */
+    const onMySkyCollectionFilter = (ids) => {
+      mySkyCollectionIds.value = ids ? [...ids] : null;
+      // a selection left outside the collection would keep its footprint on the sky
+      if (mySkySelectedId.value && mySkyCollectionIds.value
+          && !mySkyCollectionIds.value.includes(mySkySelectedId.value)) onMySkySelect(null);
+      applyMySkyHidden();
+      applyMySkyOutlines();
+    };
+    /** Revoking a share rotates the tile secrets in the background (APO-92), so the
+     *  `base`/`thumb` URLs in hand go stale — refetch once the rotation has had time. */
+    const MYSKY_ROTATION_GRACE_MS = 10000;
+    const onMySkyReloadRequest = () => scheduleMySkyReload(MYSKY_ROTATION_GRACE_MS);
+
+    // ── Shared collection view (`/s/:token`) ────────────────────────────────
+    /** `?img=<id or id prefix>` → the matching image of `images`, or null. */
+    const findByImgParam = (images) => {
+      const wanted = new URLSearchParams(window.location.search).get('img');
+      return (wanted && images.find(im => im.id === wanted || im.id.startsWith(wanted))) || null;
+    };
+
+    /** Put the camera on (ra, dec) at `fov` immediately — no flight, used at startup. */
+    const setView = (raDeg, decDeg, fovDeg) => {
+      if (!controlsManager || !Number.isFinite(raDeg) || !Number.isFinite(decDeg) || !Number.isFinite(fovDeg)) return;
+      const p = controlsManager._skyDirection(raDeg, decDeg);
+      controlsManager.camera.position.set(-p.x, -p.y, -p.z); // OrbitControls pulls it to the fov distance
+      controlsManager.setFov(fovDeg);
+    };
+
+    /**
+     * Startup for `/s/:token`: hand the fetched collection to the layer and pick the
+     * opening view — `?img=` wins, then `?ra&dec&fov`, then fit-all. `?tour=1` starts
+     * the panel's tour once the panel exists.
+     */
+    const bootstrapShared = () => {
+      applyMySkyImages(props.sharedImages || []);
+      mySkyLoaded.value = true;
+      setTerrain(false);   // the viewer's local horizon means nothing here
+
+      const q = new URLSearchParams(window.location.search);
+      const target = findByImgParam(mySkyImages.value);
+      if (target) {
+        onMySkySelect(target);
+        setView(target.ra, target.dec, Math.max(0.05, (Number.isFinite(target.fov) ? target.fov : 1) * 1.3));
+      } else if (q.has('ra') && q.has('dec') && q.has('fov')) {
+        setView(Number(q.get('ra')), Number(q.get('dec')), Number(q.get('fov')));
+      } else {
+        const view = fitAllView(mySkyImages.value, controlsManager.fovMax);
+        if (view) setView(view.ra, view.dec, view.fov);
+      }
+
+      if (q.get('tour') === '1') tourTimer = setTimeout(() => mySkyPanelRef.value?.startTour(), 1200);
+    };
+
+    // ── My Sky data: GET /me/sky ────────────────────────────────────────────
+    const MYSKY_TILING_POLL_MS = 15000;  // an image is `tiling` for a minute or two
+    const MYSKY_STALE_MS = 30000;        // refetch on tab focus if the list is older than this
+    let mySkyTimer = null;
+    let mySkyFetchedAt = 0;
+    let mySkyInflight = false;
+    // one-shot startup timers; cleared in onBeforeUnmount, they outlive the view otherwise
+    let deepLinkViewTimer = null;
+    let deepLinkImgTimer = null;
+    let tourTimer = null;
+
+    const scheduleMySkyReload = (delayMs) => {
+      clearTimeout(mySkyTimer);
+      mySkyTimer = setTimeout(() => { loadMySky(); }, delayMs);
+    };
+
+    /** Hand a fresh image list to the layer, the outlines and the panel. */
+    const applyMySkyImages = (images) => {
+      mySkyImages.value = images;
+      // only tiled images can be drawn; `tiling` ones have no moc/base yet
+      const drawable = images.filter(im => im.status === 'ready');
+      if (userLayer) userLayer.setImages(drawable);
+      else userLayer = new UserHipsCompositeLoader(drawable);
+      // a selection can disappear on refresh (image deleted elsewhere)
+      if (mySkySelectedId.value && !images.some(im => im.id === mySkySelectedId.value)) onMySkySelect(null);
+      healpixManager?.setUserLayer(userLayer, userLayer.maxOrder);
+      applyMySkyHidden();
+      applyMySkyOutlines();
+      applyMySkyOpacity();
+      applyMySkySplit();
+      healpixManager?.setStarsVisible(mySkyStarsOn.value);
+    };
+
+    const loadMySky = async () => {
+      // `/s/:token` never touches `/me/*`: no Authorization, no guest token, no polling
+      if (props.shared || props.embedded || !getToken()) return;
+      // A call landing mid-request must not silently kill the pending poll: come back
+      // later instead, or the `tiling` chain dies and the row spins until a reload.
+      if (mySkyInflight) { scheduleMySkyReload(MYSKY_TILING_POLL_MS); return; }
+      clearTimeout(mySkyTimer);
+      mySkyInflight = true;
+      try {
+        const { data } = await apiClient.get('/me/sky');
+        const images = data?.images || [];
+        mySkyFetchedAt = Date.now();
+        applyMySkyImages(images);
+        const first = !mySkyLoaded.value;
+        mySkyLoaded.value = true;
+        // images still being tiled turn `ready` on their own — poll until they do
+        if (images.some(im => im.status === 'tiling')) scheduleMySkyReload(MYSKY_TILING_POLL_MS);
+        if (first) applyMySkyDeepLink(images);
+      } catch (err) {
+        if (err.response?.status !== 401) {
+          console.warn('[my sky] /me/sky failed, retrying', err.message);
+          scheduleMySkyReload(MYSKY_TILING_POLL_MS);
+        }
+      } finally {
+        mySkyInflight = false;
+      }
+    };
+
+    /** ?img=<id or id prefix> flies to that image once the list is known. */
+    const applyMySkyDeepLink = (images) => {
+      const target = findByImgParam(images);
+      if (target) deepLinkImgTimer = setTimeout(() => { onMySkySelect(target); onMySkyFly(target); }, 800);
+    };
+
+    /** A photo solved in another tab should show up when this one is looked at again. */
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && mySkyLoaded.value
+          && Date.now() - mySkyFetchedAt > MYSKY_STALE_MS) loadMySky();
+    };
+
+    /** Sign-out (including the 401 interceptor) takes the layer off the sky.
+     *  A shared collection belongs to nobody watching it — auth changes leave it alone. */
+    watch(isAuthenticated, (authed) => {
+      if (props.shared) return;
+      if (authed) { if (!mySkyLoaded.value) loadMySky(); return; }
+      clearTimeout(mySkyTimer);
+      mySkyLoaded.value = false;
+      mySkyImages.value = [];
+      mySkySelectedId.value = null;
+      mySkyCollectionIds.value = null;   // the panel unmounts with its dropdown
+      healpixManager?.setUserLayer(null, 0);
+      userLayer?.dispose();
+      userLayer = null;
+      footprintManager?.setAll(null);
+      footprintManager?.setLabels(null);
+      footprintManager?.setHover(null);
+      footprintManager?.setSelected(null);
+      // "Catalog stars" lives in MySkyPanel, which has just unmounted — leaving the
+      // stars hidden would strand the user with no control to bring them back.
+      healpixManager?.setStarsVisible(true);
+    });
 
     onMounted(() => {
       sceneManager = new SceneManager(threeContainer.value);
@@ -309,7 +665,20 @@ export default {
         cursorX.value = _lastClientX + 16;
         cursorY.value = _lastClientY + 16;
         cursorTooltipVisible.value = true;
+
+        // photo under the cursor → highlight its row + outline
+        if (mySkyEnabled.value) {
+          const hit = mySkyImageAt(raDeg, decDeg);
+          const id = hit ? hit.id : null;
+          if (id !== mySkyHoverId.value) {
+            mySkyHoverId.value = id;
+            footprintManager?.setHover(hit && hit.id !== mySkySelectedId.value ? hit : null);
+          }
+        }
       };
+
+      let _downX = 0, _downY = 0;
+      canvas.addEventListener('mousedown', (e) => { _downX = e.clientX; _downY = e.clientY; });
 
       canvas.addEventListener('mousemove', (e) => {
         const rect = canvas.getBoundingClientRect();
@@ -331,6 +700,16 @@ export default {
         if (!e.shiftKey) {
           angDistPoint1.value = null;
           angDistResult.value = '';
+          // a plain click (no drag) on a photo selects it in the panel
+          if (mySkyEnabled.value && Math.hypot(e.clientX - _downX, e.clientY - _downY) < 4) {
+            _raycaster.setFromCamera(_mouse, sceneManager.camera);
+            const d = _raycaster.ray.direction.clone().applyQuaternion(sceneManager.skyGroup.quaternion.clone().invert());
+            const [cra, cdec] = cartesian_to_equatorial(d.x, d.y, d.z);
+            const raDeg = cra * 180 / Math.PI, decDeg = cdec * 180 / Math.PI;
+            const hit = mySkyImageAt(raDeg, decDeg);
+            if (hit && hit.id === mySkySelectedId.value) onMySkyFly(hit); // second click flies
+            else onMySkySelect(hit);
+          }
           return;
         }
 
@@ -360,13 +739,35 @@ export default {
       // Инициализируем UIManager
       uiManager = new UIManager(hudRef.value);
       healpixManager = new HealpixManager(sceneManager.skyGroup, labelManager);
+
+      // My Sky image outlines on the sky
+      footprintManager = new FootprintManager(sceneManager.skyGroup);
+      footprintManager.setLabelContainer(mySkyLabelsRef.value, (img) => { onMySkySelect(img); onMySkyFly(img); }, sceneManager.renderer.domElement);
+      window.addEventListener('pointermove', onCompareMove);
+      window.addEventListener('pointerup', onCompareUp);
+
+      // deep link: ?ra=&dec=&fov= (shared mode picks its opening view in bootstrapShared).
+      // The ground is deliberately left as it is: `syncUrlFromCamera` now writes these
+      // params on every camera move, so they mirror the last view rather than mark an
+      // explicit deep link — hiding the ground here would turn it off on every reload.
+      // The fly-to-photo path (`?img=`, onMySkyFly) still hides it, where it is meant to.
+      const q = new URLSearchParams(window.location.search);
+      if (!props.shared && q.has('ra') && q.has('dec') && q.has('fov')) {
+        const [ra, dec, fov] = [Number(q.get('ra')), Number(q.get('dec')), Number(q.get('fov'))];
+        deepLinkViewTimer = setTimeout(() => setView(ra, dec, fov), 1500);
+      }
+      document.addEventListener('visibilitychange', onVisibilityChange);
+      loadMySky();
+
       groundManager = new GroundManager(sceneManager.scene);
       overlayManager = new OverlayManager(sceneManager.skyGroup, controlsManager);
 
       if (props.taskId) {
-        groundManager.setVisible(false);
+        setTerrain(false);
         overlayManager.overlay(props.taskId);
       }
+
+      if (props.shared) bootstrapShared();
 
       healpixManager.update();
 
@@ -376,6 +777,8 @@ export default {
       });
 
       sceneManager.startAnimationLoop((deltaTime, elapsedTime, scene, camera) => {
+        // the loop is stopped in onBeforeUnmount; belt and braces for a frame in flight
+        if (!sceneManager || !controlsManager) return;
 
         if (timeSelectorRef.value) {
           const smoothTime = timeSelectorRef.value.getSmoothTime(deltaTime);
@@ -445,6 +848,8 @@ export default {
         }
 
         healpixManager.setOrder(sceneManager.camera);
+        footprintManager?.update(sceneManager.camera, window.innerWidth, window.innerHeight);
+        if (mySkyEnabled.value) syncUrlFromCamera(performance.now());
       });
 
 
@@ -487,18 +892,34 @@ export default {
     }
 
     watch(() => props.taskId, (newTaskId) => {
-      groundManager.setVisible(false);
+      setTerrain(false);
       if (newTaskId && overlayManager) {
         overlayManager.overlay(newTaskId);
       }
       if (!newTaskId && overlayManager) {
         overlayManager.removeAllOverlays();
       }
+      // opening a task means it has just been solved — its image may be new to the list
+      if (mySkyLoaded.value) loadMySky();
     });
 
     onBeforeUnmount(() => {
+      clearTimeout(mySkyTimer);
+      clearTimeout(deepLinkViewTimer);
+      clearTimeout(deepLinkImgTimer);
+      clearTimeout(tourTimer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      footprintManager?.dispose();
+      footprintManager = null;
+      userLayer?.dispose();
+      userLayer = null;
+      window.removeEventListener('pointermove', onCompareMove);
+      window.removeEventListener('pointerup', onCompareUp);
       if (sceneManager) {
-        //sceneManager.dispose();
+        // Stops the render loop and drops the WebGL context. Without it the loop keeps
+        // firing on a torn-down scene and every mount leaks a context — `/s/:token` ↔ `/`
+        // makes that a loop, and browsers drop the oldest context after ~16.
+        sceneManager.dispose();
         sceneManager = null;
       }
       if (updateStarsInterval) {
@@ -562,6 +983,36 @@ export default {
       cursorY,
       cursorCoords,
       angDistResult,
+      isAuthenticated,
+      // My Sky
+      mySkyEnabled,
+      mySkyImages,
+      mySkySelectedId,
+      mySkyLayerOn,
+      mySkyOutlinesOn,
+      mySkyOpacity,
+      mySkyPanelRef,
+      mySkyLabelsRef,
+      mySkyHoverId,
+      mySkyCompareOn,
+      mySkyLabelsOn,
+      onMySkyLabels,
+      mySkyHiddenIds,
+      onMySkyToggleVisible,
+      mySkyStarsOn,
+      onMySkyStars,
+      mySkyCompareX,
+      onMySkyCompare,
+      onCompareDown,
+      onCompareWheel,
+      onMySkyFly,
+      onMySkyHover,
+      onMySkySelect,
+      onMySkyToggle,
+      onMySkyOutlines,
+      onMySkyOpacity,
+      onMySkyCollectionFilter,
+      onMySkyReloadRequest,
     };
   }
 };
@@ -733,6 +1184,57 @@ export default {
 
 .grid-labels :deep(.grid-label-left) {
   transform: translateY(-50%);
+}
+
+/* My Sky: sky labels and the compare slider */
+.mysky-labels { position: fixed; inset: 0; pointer-events: none; z-index: 90; }
+.mysky-labels :deep(.mysky-label),
+.mysky-labels .mysky-label {
+  position: absolute; left: 0; top: 0;
+  pointer-events: auto; cursor: pointer;
+  transform-origin: 0 0;
+  padding: 2px 7px; border-radius: 6px;
+  font: 500 11px system-ui, -apple-system, sans-serif; letter-spacing: 0.02em;
+  color: #eafff4; background: rgba(66, 185, 131, 0.28); border: 1px solid rgba(66, 185, 131, 0.7);
+  white-space: nowrap; user-select: none;
+}
+.mysky-labels .mysky-label:hover { background: rgba(66, 185, 131, 0.6); }
+.compare-line {
+  position: fixed; top: 0; bottom: 0; width: 2px; margin-left: -1px;
+  background: rgba(255, 255, 255, 0.85); box-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+  cursor: ew-resize; z-index: 95; touch-action: none;
+}
+.compare-line::before { content: ''; position: absolute; top: 0; bottom: 0; left: -8px; right: -8px; }
+.compare-handle {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  display: flex; gap: 8px; align-items: center;
+  padding: 6px 12px; border-radius: 999px;
+  background: rgba(14, 16, 21, 0.9); border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #d7dde5; font: 500 11px system-ui, sans-serif; white-space: nowrap; user-select: none;
+}
+.compare-sep { color: #42b983; font-size: 14px; }
+
+/* Shared viewer: the only chrome outside the panel */
+.shared-brand {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  z-index: 100;
+}
+
+.shared-brand-link {
+  color: rgba(255, 255, 255, 0.55);
+  text-decoration: none;
+  font: 500 0.8rem system-ui, -apple-system, sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.shared-brand-link:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .cursor-tooltip {

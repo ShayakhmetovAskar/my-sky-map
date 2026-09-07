@@ -14,6 +14,15 @@ class Settings(BaseSettings):
     minio_bucket: str = "skymap"
     minio_secure: bool = False
 
+    # Public HiPS bucket (APO-81): per-image sky tiles under img/{secret}/, anonymous GET only.
+    # Written by the worker with its own key so it can be revoked separately from MINIO_*.
+    hips_endpoint: str = "host.docker.internal:9000"
+    hips_bucket: str = "skymap-static-data"
+    hips_access_key: str = "admin"
+    hips_secret_key: str = "password"
+    hips_secure: bool = False
+    hips_public_base_url: str = "http://localhost:9000/skymap-static-data"  # prod: https://storage.yandexcloud.net/skymap-static-data
+
     # RabbitMQ
     rabbitmq_host: str = "localhost"
     rabbitmq_port: int = 5672

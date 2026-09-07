@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, DateTime, Enum, Float, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import DeclarativeBase, relationship
 
@@ -18,7 +18,7 @@ class Submission(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(String, nullable=False, index=True)
     status = Column(
-        Enum("pending", "uploaded", "processing", "completed", "failed", name="submission_status"),
+        Enum("pending", "uploaded", "processing", "tiling", "completed", "failed", name="submission_status"),
         nullable=False,
         default="pending",
     )
@@ -39,7 +39,7 @@ class Task(Base):
     submission_id = Column(UUID(as_uuid=True), ForeignKey("submissions.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(String, nullable=False, index=True)
     status = Column(
-        Enum("pending", "processing", "completed", "failed", "cancelled", name="task_status"),
+        Enum("pending", "processing", "tiling", "completed", "failed", "cancelled", name="task_status"),
         nullable=False,
         default="pending",
     )
@@ -58,6 +58,47 @@ class Task(Base):
         if self.error_code:
             return {"code": self.error_code, "message": self.error_message}
         return None
+
+
+class Collection(Base):
+    """User-defined group of solved images (My Sky). See docs/my-sky-collections-sharing.md §3."""
+
+    __tablename__ = "collections"
+    __table_args__ = (
+        Index(
+            "uq_collections_share_token",
+            "share_token",
+            unique=True,
+            postgresql_where=text("share_token IS NOT NULL"),
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String, nullable=False, index=True)
+    title = Column(String(80), nullable=False)
+    share_token = Column(String(32), nullable=True)
+    # Guest-owned collections only: share time + 30 days, extended by owner activity.
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    items = relationship(
+        "CollectionItem",
+        back_populates="collection",
+        order_by="CollectionItem.position",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class CollectionItem(Base):
+    __tablename__ = "collection_items"
+
+    collection_id = Column(UUID(as_uuid=True), ForeignKey("collections.id", ondelete="CASCADE"), primary_key=True)
+    task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True, index=True)
+    position = Column(Integer, nullable=False)
+
+    collection = relationship("Collection", back_populates="items")
 
 
 class StarCatalog(Base):

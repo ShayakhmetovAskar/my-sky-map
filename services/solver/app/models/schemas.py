@@ -21,6 +21,7 @@ class SubmissionStatus(str, Enum):
     pending = "pending"
     uploaded = "uploaded"
     processing = "processing"
+    tiling = "tiling"
     completed = "completed"
     failed = "failed"
 
@@ -28,6 +29,7 @@ class SubmissionStatus(str, Enum):
 class TaskStatus(str, Enum):
     pending = "pending"
     processing = "processing"
+    tiling = "tiling"
     completed = "completed"
     failed = "failed"
     cancelled = "cancelled"

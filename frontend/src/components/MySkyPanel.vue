@@ -1,6 +1,7 @@
 <template>
-  <!-- Left dock listing the user's solved images -->
-  <button class="mysky-toggle" :class="{ open: isOpen }" @click="isOpen = !isOpen" title="My Sky">
+  <!-- Left dock listing solved images: the owner's own on `/`, a shared collection
+       (read-only, no dropdown / ⋯ / Share) on `/s/:token`. -->
+  <button class="mysky-toggle" :class="{ open: isOpen }" @click="isOpen = !isOpen" :title="title">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/>
     </svg>
@@ -10,7 +11,7 @@
     <aside v-if="isOpen" class="mysky-dock" tabindex="0" @keydown="onKeydown">
       <header class="dock-header">
         <div class="dock-title">
-          <span>My Sky</span>
+          <span class="dock-name" :title="title">{{ title }}</span>
           <span class="dock-count">{{ listImages.length }} images · {{ coverageText }}</span>
         </div>
         <button class="dock-close" @click="isOpen = false" aria-label="Close">
@@ -19,8 +20,9 @@
       </header>
 
       <!-- Collection picker: All / one collection / + New. The choice is the filter for
-           the list, the sky layer and the outlines alike (design §6). -->
-      <div class="collection-bar">
+           the list, the sky layer and the outlines alike (design §6).
+           A shared viewer sees one fixed collection, so the whole bar is owner-only. -->
+      <div v-if="!readOnly" class="collection-bar">
         <div class="coll-picker">
           <input v-if="editing" ref="editInputRef" class="coll-edit" v-model="editTitle" maxlength="80"
                  :placeholder="editing === 'create' ? 'New collection' : 'Collection name'"
@@ -124,7 +126,7 @@
               <span>{{ img.pixscale.toFixed(1) }}"/px</span>
             </div>
           </div>
-          <button class="row-menu-btn" :class="{ active: rowMenu && rowMenu.img.id === img.id }"
+          <button v-if="!readOnly" class="row-menu-btn" :class="{ active: rowMenu && rowMenu.img.id === img.id }"
                   @click.stop="openRowMenu(img, $event)" title="Collections">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
           </button>
@@ -139,7 +141,8 @@
           This collection is empty.<br /><a href="#" @click.prevent="openAddImages">Add images</a>
         </li>
         <li v-else-if="listImages.length === 0" class="empty">
-          No solved images yet.<br /><router-link to="/solve">Solve your first image</router-link>
+          <template v-if="readOnly">This collection is empty.</template>
+          <template v-else>No solved images yet.<br /><router-link to="/solve">Solve your first image</router-link></template>
         </li>
       </ul>
 
@@ -173,7 +176,16 @@
       <!-- Non-blocking API errors -->
       <div v-if="error" class="error-toast" role="status" @click="error = ''">{{ error }}</div>
 
-      <footer class="dock-footer">↑↓ browse · Enter fly · hover = outline</footer>
+      <!-- Viewer call to action: sign-up path for a stranger, a way home for a user -->
+      <div v-if="readOnly" class="dock-cta">
+        <router-link v-if="signedIn" to="/" class="cta-btn">Open My Sky</router-link>
+        <router-link v-else to="/solve" class="cta-btn">Solve your own photos →</router-link>
+      </div>
+
+      <footer class="dock-footer">
+        <span>↑↓ browse · Enter fly · hover = outline</span>
+        <a v-if="readOnly" class="report-link" :href="reportHref" rel="noopener noreferrer">Report</a>
+      </footer>
     </aside>
   </transition>
 
@@ -213,6 +225,12 @@ import ShareDialog from '@/components/ShareDialog.vue'
 
 const props = defineProps({
   images: { type: Array, default: () => [] },
+  /** Header text: "My Sky" for the owner, the collection title for a viewer. */
+  title: { type: String, default: 'My Sky' },
+  /** Shared viewer: nothing here may edit the collection or write the owner's storage. */
+  readOnly: { type: Boolean, default: false },
+  /** Whether the person looking has an account — decides which CTA to show. */
+  signedIn: { type: Boolean, default: false },
   selectedId: { type: String, default: null },
   layerOn: { type: Boolean, default: true },
   outlinesOn: { type: Boolean, default: false },
@@ -229,8 +247,16 @@ const emit = defineEmits([
   'collection-filter', 'reload-images',
 ])
 
-const isOpen = ref(localStorage.getItem('mySkyDockOpen') !== '0')
-watch(isOpen, v => localStorage.setItem('mySkyDockOpen', v ? '1' : '0'))
+// A viewer's dock state is their own; it must not overwrite the owner's key.
+const DOCK_KEY = props.readOnly ? 'sharedSkyDockOpen' : 'mySkyDockOpen'
+const isOpen = ref(localStorage.getItem(DOCK_KEY) !== '0')
+watch(isOpen, v => localStorage.setItem(DOCK_KEY, v ? '1' : '0'))
+
+// Abuse reports on a shared link go to a mailbox with the link itself attached.
+const ABUSE_EMAIL = import.meta.env.VITE_ABUSE_EMAIL || 'abuse@afsh.space'
+const reportHref = computed(() =>
+  `mailto:${ABUSE_EMAIL}?subject=${encodeURIComponent('Report a shared sky')}`
+  + `&body=${encodeURIComponent(`Link: ${window.location.href}\n\nWhat is wrong:\n`)}`)
 
 const listRef = ref(null)
 const focusIndex = ref(-1)
@@ -244,7 +270,7 @@ const MAX_ITEMS = 200
 const ACTIVE_KEY = 'mySkyCollection'
 
 const collections = ref([])
-const activeId = ref(localStorage.getItem(ACTIVE_KEY) || null)
+const activeId = ref(props.readOnly ? null : localStorage.getItem(ACTIVE_KEY) || null)
 const busy = ref(false)
 const error = ref('')
 let errorTimer = null
@@ -298,8 +324,10 @@ async function loadCollections() {
 
 function selectCollection(id) {
   activeId.value = id || null
-  if (id) localStorage.setItem(ACTIVE_KEY, id)
-  else localStorage.removeItem(ACTIVE_KEY)
+  if (!props.readOnly) {
+    if (id) localStorage.setItem(ACTIVE_KEY, id)
+    else localStorage.removeItem(ACTIVE_KEY)
+  }
   closeMenus()
 }
 
@@ -472,7 +500,9 @@ function onShareUpdated(patch) {
 const onDocClick = () => closeMenus()
 onMounted(() => {
   document.addEventListener('click', onDocClick)
-  loadCollections()
+  // A shared viewer has no session: /me/collections would 401 and trip the
+  // logout interceptor in apiClient, so the owner's collections stay unloaded.
+  if (!props.readOnly) loadCollections()
 })
 
 // ── List behaviour ─────────────────────────────────────────────────────────
@@ -535,7 +565,7 @@ function stopTour() {
   if (tourTimer) { clearTimeout(tourTimer); tourTimer = null }
 }
 
-defineExpose({ stopTour })
+defineExpose({ startTour, stopTour })
 onBeforeUnmount(() => {
   stopTour()
   clearTimeout(errorTimer)
@@ -590,8 +620,11 @@ onBeforeUnmount(() => {
   padding: 14px 14px 10px 64px; /* leave room for the two rail buttons */
   min-height: 108px;
 }
-.dock-title { display: flex; flex-direction: column; gap: 4px; }
-.dock-title > span:first-child { font-size: 1.05rem; font-weight: 600; letter-spacing: 0.02em; }
+.dock-title { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dock-name {
+  font-size: 1.05rem; font-weight: 600; letter-spacing: 0.02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .dock-count { font-size: 0.75rem; color: #8a93a0; }
 .dock-close {
   background: none; border: none; color: #8a93a0; cursor: pointer; padding: 6px; border-radius: 6px;
@@ -780,11 +813,34 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(226, 119, 122, 0.4);
   cursor: pointer;
 }
+.dock-cta {
+  padding: 12px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.cta-btn {
+  display: block;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(66, 185, 131, 0.5);
+  background: rgba(66, 185, 131, 0.12);
+  color: #42b983;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-align: center;
+  text-decoration: none;
+}
+.cta-btn:hover { background: rgba(66, 185, 131, 0.22); color: #eafff4; }
 
 .dock-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   padding: 8px 14px;
   font-size: 0.7rem;
   color: #5d6570;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
+.report-link { color: #5d6570; text-decoration: none; flex-shrink: 0; }
+.report-link:hover { color: #8a93a0; text-decoration: underline; }
 </style>

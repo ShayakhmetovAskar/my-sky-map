@@ -1,12 +1,12 @@
 <template>
   <div class="three-container" ref="threeContainer"></div>
 
-  <div v-if="!embedded" id="hud">
+  <div v-if="!embedded && !shared" id="hud">
     <pre id="fovValue" ref="hudRef">HUD ...</pre>
   </div>
 
-  <!-- Side Menu -->
-  <SideMenu v-if="!embedded"
+  <!-- Side Menu — hidden on `/s/`: it links into the owner's private sections -->
+  <SideMenu v-if="!embedded && !shared"
     :latitude="observerLat"
     :longitude="observerLon"
     :terrain="terrainOn"
@@ -22,10 +22,14 @@
     @max-fps-changed="onMaxFpsChanged"
   />
 
-  <!-- My Sky: the signed-in user's solved images (GET /me/sky) -->
+  <!-- My Sky: the signed-in user's solved images (GET /me/sky), or, on `/s/:token`,
+       a shared collection in read-only mode -->
   <MySkyPanel v-if="!embedded && mySkyEnabled"
     ref="mySkyPanelRef"
     :images="mySkyImages"
+    :read-only="shared"
+    :title="shared ? (sharedTitle || 'Shared sky') : 'My Sky'"
+    :signed-in="isAuthenticated"
     :selected-id="mySkySelectedId"
     :layer-on="mySkyLayerOn"
     :outlines-on="mySkyOutlinesOn"
@@ -55,8 +59,9 @@
     <div class="compare-handle"><span>my photo</span><span class="compare-sep">⇔</span><span>DSS</span></div>
   </div>
 
-  <!-- Bottom Bar: time + ground + tracking -->
-  <TimeSelectorV2 v-if="!embedded" ref="timeSelectorRef"
+  <!-- Bottom Bar: time + ground + tracking. Off on `/s/`: a viewer is looking at
+       someone else's photos, not at their own horizon, and the sky stays still. -->
+  <TimeSelectorV2 v-if="!embedded && !shared" ref="timeSelectorRef"
     :ground="terrainOn"
     :tracking="isTracking"
     :grid="gridOn"
@@ -86,6 +91,11 @@
   <!-- Grid Labels -->
   <div v-if="!embedded" ref="gridLabelsRef" class="grid-labels"></div>
 
+  <!-- Title of the shared collection, in place of the hidden app chrome -->
+  <div v-if="shared" class="shared-brand">
+    <router-link to="/" class="shared-brand-link">Sky&nbsp;Map</router-link>
+  </div>
+
   <!-- Cursor Tooltip -->
   <div v-if="cursorTooltipVisible" class="cursor-tooltip" :style="{ left: cursorX + 'px', top: cursorY + 'px' }">
     {{ cursorCoords }}
@@ -93,7 +103,7 @@
   </div>
 
   <!-- Debug Panel -->
-  <DebugPanel v-if="!embedded" />
+  <DebugPanel v-if="!embedded && !shared" />
 
 
 </template>
@@ -116,6 +126,7 @@ import DebugPanel from '@/components/DebugPanel.vue';
 import HealpixManager from '@/managers/HealpixManager';
 import OverlayManager from '@/managers/OverlayManager';
 import FootprintManager from '@/managers/FootprintManager';
+import { fitAllView } from '@/utils/skyFit';
 import { UserHipsCompositeLoader } from '@/utils/userHipsComposite';
 import MySkyPanel from '@/components/MySkyPanel.vue';
 import apiClient from '@/utils/apiClient';
@@ -134,11 +145,26 @@ export default {
   props: {
     taskId: {
       type: [String],
-      required: true
+      default: ''
     },
     embedded: {
       type: Boolean,
       default: false
+    },
+    /** Read-only viewer for a shared collection (`/s/:token`): no auth, no owner controls. */
+    shared: {
+      type: Boolean,
+      default: false
+    },
+    /** Images of the shared collection, already fetched by PublicSky.vue. */
+    sharedImages: {
+      type: Array,
+      default: () => []
+    },
+    /** Collection title, shown in the panel header instead of "My Sky". */
+    sharedTitle: {
+      type: String,
+      default: ''
     }
   },
   setup(props) {
@@ -174,24 +200,32 @@ export default {
 
     // ── My Sky: the user's own solved images as a layer over the DSS ─────────
     // Data comes from `GET /me/sky`; the panel exists only for a signed-in user.
+    // On `/s/:token` the same machinery renders someone else's collection, handed in
+    // through `sharedImages` — nothing is fetched from `/me/*` and nothing is stored.
     const { isAuthenticated, getToken } = useAuth();
     const mySkyLoaded = ref(false);
-    const mySkyEnabled = computed(() => isAuthenticated.value && mySkyLoaded.value);
+    const mySkyEnabled = computed(() => mySkyLoaded.value && (props.shared || isAuthenticated.value));
+
+    // A viewer's toggles on `/s/` must not land in the owner's own keys — this browser
+    // may well be the owner's. In shared mode every preference stays in memory.
+    const prefRead = (key) => (props.shared ? null : localStorage.getItem(key));
+    const prefWrite = (key, value) => { if (!props.shared) localStorage.setItem(key, value); };
+
     const mySkyImages = ref([]);
     const mySkySelectedId = ref(null);
     const mySkyLayerOn = ref(true);
-    const mySkyOutlinesOn = ref(localStorage.getItem('mySkyOutlines') === '1');
+    const mySkyOutlinesOn = ref(prefRead('mySkyOutlines') === '1');
     const mySkyOpacity = ref(1);
     const mySkyPanelRef = ref(null);
     const mySkyLabelsRef = ref(null);
     const mySkyHoverId = ref(null);        // image under the mouse on the sky
     const mySkyCompareOn = ref(false);
-    const mySkyLabelsOn = ref(localStorage.getItem('mySkyLabels') !== '0');
-    const mySkyHiddenIds = ref(JSON.parse(localStorage.getItem('mySkyHidden') || '[]'));
-    const mySkyStarsOn = ref(localStorage.getItem('mySkyStars') !== '0');
+    const mySkyLabelsOn = ref(prefRead('mySkyLabels') !== '0');
+    const mySkyHiddenIds = ref(JSON.parse(prefRead('mySkyHidden') || '[]'));
+    const mySkyStarsOn = ref(prefRead('mySkyStars') !== '0');
     const onMySkyStars = (v) => {
       mySkyStarsOn.value = v;
-      localStorage.setItem('mySkyStars', v ? '1' : '0');
+      prefWrite('mySkyStars', v ? '1' : '0');
       healpixManager?.setStarsVisible(v);
     };
     // The panel's collection dropdown narrows the layer, the outlines and the hit test
@@ -381,19 +415,19 @@ export default {
       mySkyHiddenIds.value = currentlyHidden
         ? mySkyHiddenIds.value.filter(id => id !== img.id)
         : [...mySkyHiddenIds.value, img.id];
-      localStorage.setItem('mySkyHidden', JSON.stringify(mySkyHiddenIds.value));
+      prefWrite('mySkyHidden', JSON.stringify(mySkyHiddenIds.value));
       if (!currentlyHidden && mySkySelectedId.value === img.id) onMySkySelect(null);
       applyMySkyHidden();
       applyMySkyOutlines();
     };
     const onMySkyLabels = (v) => {
       mySkyLabelsOn.value = v;
-      localStorage.setItem('mySkyLabels', v ? '1' : '0');
+      prefWrite('mySkyLabels', v ? '1' : '0');
       applyMySkyOutlines();
     };
     const onMySkyOutlines = (v) => {
       mySkyOutlinesOn.value = v;
-      localStorage.setItem('mySkyOutlines', v ? '1' : '0');
+      prefWrite('mySkyOutlines', v ? '1' : '0');
       applyMySkyOutlines();
     };
     const onMySkyOpacity = (v) => { mySkyOpacity.value = v; applyMySkyOpacity(); };
@@ -410,6 +444,42 @@ export default {
      *  `base`/`thumb` URLs in hand go stale — refetch once the rotation has had time. */
     const MYSKY_ROTATION_GRACE_MS = 10000;
     const onMySkyReloadRequest = () => scheduleMySkyReload(MYSKY_ROTATION_GRACE_MS);
+
+    // ── Shared collection view (`/s/:token`) ────────────────────────────────
+    /** Put the camera on (ra, dec) at `fov` immediately — no flight, used at startup. */
+    const setView = (raDeg, decDeg, fovDeg) => {
+      if (!controlsManager || !Number.isFinite(raDeg) || !Number.isFinite(decDeg) || !Number.isFinite(fovDeg)) return;
+      const p = controlsManager._skyDirection(raDeg, decDeg);
+      controlsManager.camera.position.set(-p.x, -p.y, -p.z); // OrbitControls pulls it to the fov distance
+      controlsManager.setFov(fovDeg);
+    };
+
+    /**
+     * Startup for `/s/:token`: hand the fetched collection to the layer and pick the
+     * opening view — `?img=` wins, then `?ra&dec&fov`, then fit-all. `?tour=1` starts
+     * the panel's tour once the panel exists.
+     */
+    const bootstrapShared = () => {
+      applyMySkyImages(props.sharedImages || []);
+      mySkyLoaded.value = true;
+      groundManager?.setVisible(false);   // the viewer's local horizon means nothing here
+      terrainOn.value = false;
+
+      const q = new URLSearchParams(window.location.search);
+      const wanted = q.get('img');
+      const target = wanted && mySkyImages.value.find(im => im.id === wanted || im.id.startsWith(wanted));
+      if (target) {
+        onMySkySelect(target);
+        setView(target.ra, target.dec, Math.max(0.05, (Number.isFinite(target.fov) ? target.fov : 1) * 1.3));
+      } else if (q.has('ra') && q.has('dec') && q.has('fov')) {
+        setView(Number(q.get('ra')), Number(q.get('dec')), Number(q.get('fov')));
+      } else {
+        const view = fitAllView(mySkyImages.value, controlsManager.fovMax);
+        if (view) setView(view.ra, view.dec, view.fov);
+      }
+
+      if (q.get('tour') === '1') setTimeout(() => mySkyPanelRef.value?.startTour(), 1200);
+    };
 
     // ── My Sky data: GET /me/sky ────────────────────────────────────────────
     const MYSKY_TILING_POLL_MS = 15000;  // an image is `tiling` for a minute or two
@@ -442,7 +512,8 @@ export default {
 
     const loadMySky = async () => {
       clearTimeout(mySkyTimer);
-      if (props.embedded || mySkyInflight || !getToken()) return;
+      // `/s/:token` never touches `/me/*`: no Authorization, no guest token, no polling
+      if (props.shared || props.embedded || mySkyInflight || !getToken()) return;
       mySkyInflight = true;
       try {
         const { data } = await apiClient.get('/me/sky');
@@ -477,8 +548,10 @@ export default {
           && Date.now() - mySkyFetchedAt > MYSKY_STALE_MS) loadMySky();
     };
 
-    /** Sign-out (including the 401 interceptor) takes the layer off the sky. */
+    /** Sign-out (including the 401 interceptor) takes the layer off the sky.
+     *  A shared collection belongs to nobody watching it — auth changes leave it alone. */
     watch(isAuthenticated, (authed) => {
+      if (props.shared) return;
       if (authed) { if (!mySkyLoaded.value) loadMySky(); return; }
       clearTimeout(mySkyTimer);
       mySkyLoaded.value = false;
@@ -645,9 +718,9 @@ export default {
       window.addEventListener('pointermove', onCompareMove);
       window.addEventListener('pointerup', onCompareUp);
 
-      // deep link: ?ra=&dec=&fov=
+      // deep link: ?ra=&dec=&fov= (shared mode picks its opening view in bootstrapShared)
       const q = new URLSearchParams(window.location.search);
-      if (q.has('ra') && q.has('dec') && q.has('fov')) {
+      if (!props.shared && q.has('ra') && q.has('dec') && q.has('fov')) {
         const [ra, dec, fov] = [Number(q.get('ra')), Number(q.get('dec')), Number(q.get('fov'))];
         setTimeout(() => {
           const p = controlsManager._skyDirection(ra, dec);
@@ -666,6 +739,8 @@ export default {
         groundManager.setVisible(false);
         overlayManager.overlay(props.taskId);
       }
+
+      if (props.shared) bootstrapShared();
 
       healpixManager.update();
 
@@ -871,6 +946,7 @@ export default {
       cursorY,
       cursorCoords,
       angDistResult,
+      isAuthenticated,
       // My Sky
       mySkyEnabled,
       mySkyImages,
@@ -1100,6 +1176,29 @@ export default {
   color: #d7dde5; font: 500 11px system-ui, sans-serif; white-space: nowrap; user-select: none;
 }
 .compare-sep { color: #42b983; font-size: 14px; }
+
+/* Shared viewer: the only chrome outside the panel */
+.shared-brand {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  z-index: 100;
+}
+
+.shared-brand-link {
+  color: rgba(255, 255, 255, 0.55);
+  text-decoration: none;
+  font: 500 0.8rem system-ui, -apple-system, sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.shared-brand-link:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
 
 .cursor-tooltip {
   position: fixed;
